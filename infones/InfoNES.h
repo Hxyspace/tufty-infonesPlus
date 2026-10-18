@@ -380,7 +380,7 @@ extern BYTE ROM_FourScr;
 /*-------------------------------------------------------------------*/
 
 /* Initialize InfoNES */
-void InfoNES_Init();
+bool InfoNES_Init();
 
 /* Completion treatment */
 void InfoNES_Fin();

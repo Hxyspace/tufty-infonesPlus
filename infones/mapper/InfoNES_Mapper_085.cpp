@@ -60,7 +60,8 @@ void Map85_Init()
   /* Allocate CHR RAM only for CHR-RAM-only carts. */
   if (NesHeader.byVRomSize == 0 && !Map85_Chr_Ram)
   {
-    Map85_Chr_Ram = (BYTE *)infones::port::allocate(0x100 * 0x400);
+    Map85_Chr_Ram = (BYTE *)infones::memory::allocate(0x100 * 0x400);
+    if (!Map85_Chr_Ram) return;
     InfoNES_MemorySet(Map85_Chr_Ram, 0, 0x100 * 0x400);
   }
   /* Register it so state.cpp addresses PPUBANK[0..7] against the right base and
@@ -95,7 +96,8 @@ void Map85_Init()
    * RP2040 has no VRC7 synth — the game runs with silent expansion audio. */
   if (!vrc7_wave_buffer)
   {
-    vrc7_wave_buffer = (BYTE *)infones::port::allocate(APU_MAX_SAMPLES_PER_SYNC);
+    vrc7_wave_buffer = (BYTE *)infones::memory::allocate(APU_MAX_SAMPLES_PER_SYNC);
+    if (!vrc7_wave_buffer) return;
     if (vrc7_wave_buffer)
       InfoNES_MemorySet(vrc7_wave_buffer, 0x80, APU_MAX_SAMPLES_PER_SYNC);
   }

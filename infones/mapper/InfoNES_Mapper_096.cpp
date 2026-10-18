@@ -87,7 +87,8 @@ void Map96_Init()
   /* Allocate the 32KB CHR RAM once; Map96_Init is also the reset entry point. */
   if ( !Map96_Chr_Ram )
   {
-    Map96_Chr_Ram = (BYTE *)infones::port::allocate( MAP96_CHR_RAM_SIZE );
+    Map96_Chr_Ram = (BYTE *)infones::memory::allocate( MAP96_CHR_RAM_SIZE );
+    if (!Map96_Chr_Ram) return;
     if ( Map96_Chr_Ram )
       InfoNES_MemorySet( Map96_Chr_Ram, 0, MAP96_CHR_RAM_SIZE );
   }

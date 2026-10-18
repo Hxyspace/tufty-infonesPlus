@@ -187,7 +187,8 @@ void Map4_Init()
       if ( !Map4_Chr_Ram )
       {
         Map4_Chr_Ram_Alloc = ( dwSize > MAP4_CHR_RAM_SIZE ) ? dwSize : MAP4_CHR_RAM_SIZE;
-        Map4_Chr_Ram = (BYTE *)infones::port::allocate( Map4_Chr_Ram_Alloc );
+        Map4_Chr_Ram = (BYTE *)infones::memory::allocate( Map4_Chr_Ram_Alloc );
+        if (!Map4_Chr_Ram) return;
         if ( Map4_Chr_Ram )
           InfoNES_MemorySet( Map4_Chr_Ram, 0, Map4_Chr_Ram_Alloc );
       }

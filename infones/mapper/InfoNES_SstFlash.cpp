@@ -69,7 +69,7 @@ static BYTE *SstFlash_GetIdPage()
 {
   if ( !SstFlash_IdPage )
   {
-    SstFlash_IdPage = (BYTE *)infones::port::allocate( SSTFLASH_PAGE_SIZE );
+    SstFlash_IdPage = (BYTE *)infones::memory::allocate( SSTFLASH_PAGE_SIZE );
     if ( SstFlash_IdPage )
     {
       /* The chip decodes only the low 9 address bits in ID mode, so the
@@ -109,7 +109,7 @@ static void SstFlash_Program( struct SstFlash_tag *pFlash, DWORD dwOfs, BYTE byD
 
   if ( !SstFlash_Shadow )
   {
-    SstFlash_Shadow = (BYTE *)infones::port::allocate( SSTFLASH_PAGE_SIZE );
+    SstFlash_Shadow = (BYTE *)infones::memory::allocate( SSTFLASH_PAGE_SIZE );
     if ( !SstFlash_Shadow )
       return;                       /* no room: the write is simply lost */
     pFlash->dwShadowPage = SSTFLASH_NO_PAGE;
@@ -138,7 +138,7 @@ static void SstFlash_Erase( struct SstFlash_tag *pFlash, DWORD dwOfs )
 
   if ( !SstFlash_Shadow )
   {
-    SstFlash_Shadow = (BYTE *)infones::port::allocate( SSTFLASH_PAGE_SIZE );
+    SstFlash_Shadow = (BYTE *)infones::memory::allocate( SSTFLASH_PAGE_SIZE );
     if ( !SstFlash_Shadow )
       return;
     pFlash->dwShadowPage = SSTFLASH_NO_PAGE;

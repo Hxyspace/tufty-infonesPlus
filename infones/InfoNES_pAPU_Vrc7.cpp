@@ -241,7 +241,7 @@ constexpr auto PHASE_BASE = make_phase_inc_base();
 } // anonymous namespace
 
 /*-------------------------------------------------------------------*/
-/*  Runtime state (PSRAM-allocated via infones::port::allocate).            */
+/*  Runtime state (PSRAM-allocated via infones::memory::allocate).            */
 /*-------------------------------------------------------------------*/
 
 namespace {
@@ -643,7 +643,7 @@ void __not_in_flash_func(ApuRenderingVrc7)(int n)
 void ApuVrc7Reset(void)
 {
     if (!vrc7) {
-        vrc7 = (Vrc7State *)infones::port::allocate(sizeof(Vrc7State));
+        vrc7 = (Vrc7State *)infones::memory::allocate(sizeof(Vrc7State));
     }
     if (!vrc7) return;
     memset(vrc7, 0, sizeof(*vrc7));

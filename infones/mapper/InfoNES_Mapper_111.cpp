@@ -186,7 +186,8 @@ void Map111_Init()
      the reset entry point. */
   if ( !Map111_Chr_Ram )
   {
-    Map111_Chr_Ram = (BYTE *)infones::port::allocate( MAP111_RAM_SIZE );
+    Map111_Chr_Ram = (BYTE *)infones::memory::allocate( MAP111_RAM_SIZE );
+    if (!Map111_Chr_Ram) return;
     if ( Map111_Chr_Ram )
       InfoNES_MemorySet( Map111_Chr_Ram, 0, MAP111_RAM_SIZE );
   }

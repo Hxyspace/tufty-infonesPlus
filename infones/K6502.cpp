@@ -38,9 +38,9 @@
 // Zero Page,Y
 #define AA_ZPY (BYTE)(K6502_Read(PC++) + Y)
 // Absolute
-#define AA_ABS (K6502_Read(PC++) | (WORD)K6502_Read(PC++) << 8)
+#define AA_ABS K6502_FetchAddress(true)
 // Absolute2 ( PC-- )
-#define AA_ABS2 (K6502_Read(PC++) | (WORD)K6502_Read(PC) << 8)
+#define AA_ABS2 K6502_FetchAddress(false)
 // Absolute,X
 #define AA_ABSX AA_ABS + X
 // Absolute,Y
@@ -661,19 +661,15 @@ static void __not_in_flash_func(procNMI)()
   }
 }
 
-/* AA_ABS reads PC++ twice inside one expression, where C++ leaves the order
-   unspecified. step() happens to get the little-endian order the 6502 needs;
-   the same macro inside K6502_Undocumented() below was compiled the other way
-   round, which changed how a handful of already-crashed ROMs ran their garbage.
-   Sequence the two fetches here so this function cannot disagree with step().
-   (The macro itself is left alone - retargeting every legal opcode onto this is
-   a bigger change than this fix should carry.) */
-static __attribute__((noinline)) WORD K6502_AbsAddrSeq()
+// Explicitly sequence bus reads for all opcodes. JSR leaves PC at the high byte.
+static inline WORD K6502_FetchAddress(bool consume_high)
 {
-  WORD wLo = K6502_Read(PC++);
-  WORD wHi = K6502_Read(PC++);
-  return (WORD)(wLo | (wHi << 8));
+  const BYTE lo = K6502_Read(PC++);
+  const BYTE hi = K6502_Read(PC);
+  if (consume_high) ++PC;
+  return WORD(lo | (WORD(hi) << 8));
 }
+static WORD K6502_AbsAddrSeq() { return K6502_FetchAddress(true); }
 
 /*-------------------------------------------------------------------*/
 /*  Undocumented instructions (the stable ones)                      */

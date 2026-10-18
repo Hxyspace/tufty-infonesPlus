@@ -11,18 +11,7 @@
 
 #include <stdint.h>
 
-// Type definition
-#ifndef DWORD
-typedef unsigned long DWORD;
-#endif
-
-#ifndef WORD
-typedef unsigned short WORD;
-#endif
-
-#ifndef BYTE
-typedef unsigned char BYTE;
-#endif
+#include "InfoNES_Types.h"
 
 #ifndef NULL
 #define NULL 0

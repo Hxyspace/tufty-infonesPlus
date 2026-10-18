@@ -39,7 +39,8 @@ void Map235_Init()
   /* Set SRAM Banks */
   SRAMBANK = SRAM;
 
-  DRAM = (BYTE *)infones::port::allocate(DRAM_SIZE * sizeof(BYTE));
+  if (!DRAM) DRAM = (BYTE *)infones::memory::allocate(DRAM_SIZE * sizeof(BYTE));
+  if (!DRAM) return;
 
   /* Set Registers */
   for( int i = 0; i < 0x2000; i++ ) {

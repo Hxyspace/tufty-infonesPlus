@@ -138,7 +138,8 @@ void Map185_Init()
   /* Initialize Dummy VROM (allocated once; InfoNES_Fin frees it) */
   if ( !Map185_Dummy_Chr_Rom )
   {
-    Map185_Dummy_Chr_Rom = (BYTE *)infones::port::allocate( 0x400 );
+    Map185_Dummy_Chr_Rom = (BYTE *)infones::memory::allocate( 0x400 );
+    if (!Map185_Dummy_Chr_Rom) return;
   }
   InfoNES_MemorySet( Map185_Dummy_Chr_Rom, 0xff, 0x400 );
 

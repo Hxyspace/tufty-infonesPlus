@@ -42,7 +42,8 @@ void Map188_Init()
      the state file does not carry it, so the magic code survives a load. */
   if ( !Map188_Dummy )
   {
-    Map188_Dummy = (BYTE *)infones::port::allocate( 0x2000 );
+    Map188_Dummy = (BYTE *)infones::memory::allocate( 0x2000 );
+    if (!Map188_Dummy) return;
     InfoNES_MemorySet( Map188_Dummy, 0, 0x2000 );
   }
   SRAMBANK = Map188_Dummy;

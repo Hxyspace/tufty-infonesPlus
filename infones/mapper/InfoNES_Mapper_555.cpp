@@ -211,7 +211,8 @@ void Map555_Init()
      InfoNES_Fin frees it. */
   if ( !Map555_Ram )
   {
-    Map555_Ram = (BYTE *)infones::port::allocate( MAP555_RAM_SIZE );
+    Map555_Ram = (BYTE *)infones::memory::allocate( MAP555_RAM_SIZE );
+    if (!Map555_Ram) return;
     InfoNES_MemorySet( Map555_Ram, 0, MAP555_RAM_SIZE );
   }
   MapperPrgRam = Map555_Ram;

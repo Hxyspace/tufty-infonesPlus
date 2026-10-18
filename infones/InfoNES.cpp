@@ -44,6 +44,7 @@
 #include <assert.h>
 #include "InfoNES_Platform.h"
 #include <tuple>
+#include <algorithm>
 #include <type_traits>
 #include <cstdio>
 #include <cstdlib>
@@ -423,7 +424,7 @@ BYTE ROM_FourScr;
 /*                InfoNES_Init() : Initialize InfoNES                */
 /*                                                                   */
 /*===================================================================*/
-void InfoNES_Init()
+bool InfoNES_Init()
 {
   /*
    *  Initialize InfoNES
@@ -432,10 +433,13 @@ void InfoNES_Init()
    *    Initialize memory, K6502 and Scanline Table.
    */
 
-  RAM = (BYTE *)infones::port::allocate(RAM_SIZE);
-  SRAM = (BYTE *)infones::port::allocate(SRAM_SIZE);
-  PPURAM = (BYTE *)infones::port::allocate(PPURAM_SIZE);
-  SPRRAM = (BYTE *)infones::port::allocate(SPRRAM_SIZE);
+  if (RAM && SRAM && PPURAM && SPRRAM) return true;
+  infones::memory::failed = false;
+  RAM = (BYTE *)infones::memory::allocate(RAM_SIZE);
+  SRAM = (BYTE *)infones::memory::allocate(SRAM_SIZE);
+  PPURAM = (BYTE *)infones::memory::allocate(PPURAM_SIZE);
+  SPRRAM = (BYTE *)infones::memory::allocate(SPRRAM_SIZE);
+  if (infones::memory::failed) { InfoNES_Fin(); return false; }
 
   int nIdx;
 
@@ -454,6 +458,7 @@ void InfoNES_Init()
     else
       PPU_ScanTable[nIdx] = SCAN_VBLANK;
   }
+  return true;
 }
 
 /*===================================================================*/
@@ -470,7 +475,6 @@ void InfoNES_Fin()
    *    Release resources
    */
   // Finalize pAPU
-  printf("Quit emulation, releasing resources.\n");
   InfoNES_pAPUDone();
 
   // Release a memory for ROM
@@ -479,6 +483,10 @@ void InfoNES_Fin()
   infones::port::release(SRAM);
   infones::port::release(PPURAM);
   infones::port::release(SPRRAM);
+  RAM = SRAM = PPURAM = SPRRAM = nullptr;
+  ROMBANK0 = ROMBANK1 = ROMBANK2 = ROMBANK3 = SRAMBANK = nullptr;
+  for (auto &bank : PPUBANK) bank = nullptr;
+  MapperBlobSize = nullptr; MapperSaveBlob = nullptr; MapperLoadBlob = nullptr;
   if (Map5_Wram) { infones::port::release(Map5_Wram); Map5_Wram = nullptr; }
   if (Map5_Ex_Vram) { infones::port::release(Map5_Ex_Vram); Map5_Ex_Vram = nullptr; }
   if (Map5_Ex_Nam) { infones::port::release(Map5_Ex_Nam); Map5_Ex_Nam = nullptr; }
@@ -614,6 +622,9 @@ int InfoNES_Reset()
   /*  Initialize resources                                             */
   /*-------------------------------------------------------------------*/
 
+  if (!RAM || !SRAM || !PPURAM || !SPRRAM || !ROM || !NesHeader.byRomSize)
+    return -1;
+  infones::memory::failed = false;
   // Clear RAM
   InfoNES_MemorySet(RAM, 0, RAM_SIZE);
 
@@ -647,7 +658,7 @@ int InfoNES_Reset()
   /*  Initialize pAPU                                                  */
   /*-------------------------------------------------------------------*/
 
-  InfoNES_pAPUInit();
+  if (!InfoNES_pAPUInit()) return -1;
 
   /*-------------------------------------------------------------------*/
   /*  Initialize Mapper                                                */
@@ -676,29 +687,6 @@ int InfoNES_Reset()
       break;
   }
 
-  // An extended NES 2.0 number we do not implement. Many of those are
-  // supersets of the mapper named by the low 8 bits (260 -> 4, 281 -> 25,
-  // 516 -> 4, ...) and boot far enough to be playable that way, which is
-  // exactly what happened before NES 2.0 was parsed at all. Fall back to the
-  // 8-bit reading instead of refusing the ROM, and adopt the number so the
-  // save-state header and the on-screen mapper display agree.
-  if (MapperTable[nIdx].nMapperNo == -1 && MapperNo > 0xff)
-  {
-    WORD wLegacy = MapperNo & 0xff;
-    int nLegacy;
-    for (nLegacy = 0; MapperTable[nLegacy].nMapperNo != -1; ++nLegacy)
-    {
-      if (MapperTable[nLegacy].nMapperNo == wLegacy)
-        break;
-    }
-    if (MapperTable[nLegacy].nMapperNo != -1)
-    {
-      InfoNES_MessageBox("Mapper #%d unimplemented, falling back to #%d\n", MapperNo, wLegacy);
-      MapperNo = wLegacy;
-      nIdx = nLegacy;
-    }
-  }
-
   // The Limited Run Games mapper 268 reissues bank 256KB of CHR RAM, which
   // only an RP2350 with PSRAM has room for
   if (MapperTable[nIdx].nMapperNo == -1 || (MapperNo == 268 && !Map268_Fits()))
@@ -710,6 +698,7 @@ int InfoNES_Reset()
 
   // Set up a mapper initialization function
   MapperTable[nIdx].pMapperInit();
+  if (infones::memory::failed) return -1;
 
   // Mappers that leave MapperPPU at the Map0_PPU stub want no per-tile
   // callback at all; skip the indirect call for them (see MapperPPUActive).
@@ -926,7 +915,7 @@ void InfoNES_Main(int region)
   InfoNES_SetRegion(region);
 
   // Initialize InfoNES
-  InfoNES_Init();
+  if (!InfoNES_Init()) return;
 
   // Main loop
   // while (1)
@@ -980,7 +969,7 @@ static void __not_in_flash_func(InfoNES_HSyncDraw)()
   if (FrameCnt == 0 &&
       PPU_ScanTable[PPU_Scanline] == SCAN_ON_SCREEN)
   {
-    if (PPU_Scanline >= 4 && PPU_Scanline < 240 - 4)
+    if (PPU_Scanline < NES_DISP_HEIGHT)
     {
       InfoNES_PreDrawLine(PPU_Scanline);
       InfoNES_DrawLine();
@@ -1009,6 +998,9 @@ void __not_in_flash_func(InfoNES_Cycle)()
   // Emulation loop
   for (;;)
   {
+    // Lazy mapper/flash allocations can fail after reset. Stop at a safe
+    // scanline boundary; the host then reports OOM and unloads the cartridge.
+    if (infones::memory::failed) return;
 
     PPU_R1_Line = PPU_R1;
 
@@ -1455,7 +1447,7 @@ void __not_in_flash_func(InfoNES_DrawLine)()
   // Clear a scanline if screen is off
   if (!(byR1 & R1_SHOW_SCR))
   {
-    InfoNES_MemorySet(pPoint, 0, NES_DISP_WIDTH << 1);
+    std::fill_n(pPoint, NES_DISP_WIDTH, PalTable[0] | 0x8000);
   }
   else
   {
@@ -1718,7 +1710,7 @@ void __not_in_flash_func(InfoNES_DrawLine)()
 
       // pPointTop = &WorkFrame[PPU_Scanline * NES_DISP_WIDTH];
       pPointTop = WorkLine;
-      InfoNES_MemorySet(pPointTop, 0, 8 << 1);
+      std::fill_n(pPointTop, 8, PalTable[0] | 0x8000);
     }
 
     /*-------------------------------------------------------------------*/
@@ -1731,7 +1723,7 @@ void __not_in_flash_func(InfoNES_DrawLine)()
 
       // pPointTop = &WorkFrame[PPU_Scanline * NES_DISP_WIDTH];
       pPointTop = WorkLine;
-      InfoNES_MemorySet(pPointTop, 0, NES_DISP_WIDTH << 1);
+      std::fill_n(pPointTop, NES_DISP_WIDTH, PalTable[0] | 0x8000);
     }
   }
 
@@ -1963,6 +1955,8 @@ void __not_in_flash_func(InfoNES_DrawLine)()
     //   pPoint -= (NES_DISP_WIDTH - PPU_Scr_H_Bit);
 
 #if 1
+    // Mask sprites before compositing so background pixels survive.
+    if (!(byR1 & R1_CLIP_SP)) InfoNES_MemorySet(pSprBuf, 0, 8);
     compositeSprite(PalTable + 0x10, pSprBuf, pPoint);
 #else
     {
@@ -2001,14 +1995,7 @@ void __not_in_flash_func(InfoNES_DrawLine)()
     /*-------------------------------------------------------------------*/
     /*  Sprite Clipping                                                  */
     /*-------------------------------------------------------------------*/
-    if (!(byR1 & R1_CLIP_SP))
-    {
-      WORD *pPointTop;
 
-      // pPointTop = &WorkFrame[PPU_Scanline * NES_DISP_WIDTH];
-      pPointTop = WorkLine;
-      InfoNES_MemorySet(pPointTop, 0, 8 << 1);
-    }
 
   }
 

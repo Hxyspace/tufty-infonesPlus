@@ -537,7 +537,11 @@ static inline void __not_in_flash_func(K6502_Write)(WORD wAddr, BYTE byData)
 }
 
 // Reading/Writing operation (WORD version)
-static inline WORD K6502_ReadW(WORD wAddr) { return K6502_Read(wAddr) | (WORD)K6502_Read(wAddr + 1) << 8; };
+static inline WORD K6502_ReadW(WORD wAddr) {
+  const BYTE lo = K6502_Read(wAddr);
+  const BYTE hi = K6502_Read(WORD(wAddr + 1));
+  return WORD(lo | (WORD(hi) << 8));
+}
 static inline void K6502_WriteW(WORD wAddr, WORD wData)
 {
   K6502_Write(wAddr, wData & 0xff);
@@ -548,14 +552,10 @@ static inline WORD K6502_ReadZpW(BYTE byAddr) { return K6502_ReadZp(byAddr) | (K
 // 6502's indirect absolute jmp(opcode: 6C) has a bug (added at 01/08/15 )
 static inline WORD K6502_ReadW2(WORD wAddr)
 {
-  if (0x00ff == (wAddr & 0x00ff))
-  {
-    return K6502_Read(wAddr) | (WORD)K6502_Read(wAddr - 0x00ff) << 8;
-  }
-  else
-  {
-    return K6502_Read(wAddr) | (WORD)K6502_Read(wAddr + 1) << 8;
-  }
+  const BYTE lo = K6502_Read(wAddr);
+  const WORD next = (wAddr & 0xff00) | BYTE(wAddr + 1);
+  const BYTE hi = K6502_Read(next);
+  return WORD(lo | (WORD(hi) << 8));
 }
 
 #endif /* !K6502_RW_H_INCLUDED */

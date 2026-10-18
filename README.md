@@ -29,6 +29,9 @@ cmake --build build/core
 当前代码继承扫描线模拟及上游兼容近似；Mapper 表存在某编号不等于完整板型验证，
 NES 2.0 文件头识别也不等于完整格式支持。测试只覆盖注明的用例，尚无本分支设备结论。
 
+应用使用 `nes_cartridge` 的受检加载入口。生命周期、初期 Mapper/NES 2.0
+支持范围和像素/音频约定见 [核心契约](docs/core-contract.md)。
+
 ## 许可与核心来源
 
 本项目采用 [GPL-3.0](LICENSE)。InfoNES 核心取自

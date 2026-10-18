@@ -151,9 +151,12 @@ void Map5_Init()
   for ( BYTE byBank = 0; byBank < 8; ++byBank )
     Map5_Wram_Page[ byBank ] = bTwoChips ? ( byBank >> 2 ) : ( byBank & 0x03 );
 
-  Map5_Wram = (BYTE *)infones::port::allocate(MAP5_WRAM_SIZE);
-  Map5_Ex_Vram = (BYTE *)infones::port::allocate(0x400);
-  Map5_Ex_Nam = (BYTE *)infones::port::allocate(0x400);
+  if (!Map5_Wram) Map5_Wram = (BYTE *)infones::memory::allocate(MAP5_WRAM_SIZE);
+  if (!Map5_Wram) return;
+  if (!Map5_Ex_Vram) Map5_Ex_Vram = (BYTE *)infones::memory::allocate(0x400);
+  if (!Map5_Ex_Vram) return;
+  if (!Map5_Ex_Nam) Map5_Ex_Nam = (BYTE *)infones::memory::allocate(0x400);
+  if (!Map5_Ex_Nam) return;
 
   InfoNES_MemorySet( Map5_Wram, 0x00, MAP5_WRAM_SIZE );
   InfoNES_MemorySet( Map5_Ex_Vram, 0x00, 0x400 );
@@ -189,7 +192,8 @@ void Map5_Init()
   ApuMmc5Enable = 1;
 
   /* Allocate MMC5 wave buffers */
-  mmc5_wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])infones::port::allocate(3 * APU_MAX_SAMPLES_PER_SYNC);
+  mmc5_wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])infones::memory::allocate(3 * APU_MAX_SAMPLES_PER_SYNC);
+  if (!mmc5_wave_buffers) return;
   InfoNES_MemorySet((void *)mmc5_wave_buffers[0], 0, APU_MAX_SAMPLES_PER_SYNC);
   InfoNES_MemorySet((void *)mmc5_wave_buffers[1], 0, APU_MAX_SAMPLES_PER_SYNC);
   InfoNES_MemorySet((void *)mmc5_wave_buffers[2], 0, APU_MAX_SAMPLES_PER_SYNC);

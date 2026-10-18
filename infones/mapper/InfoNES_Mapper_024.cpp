@@ -58,7 +58,8 @@ void Map24_Init()
   ApuVrc6Enable = 1;
 
   /* Allocate VRC6 wave buffers */
-  vrc6_wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])infones::port::allocate(3 * APU_MAX_SAMPLES_PER_SYNC);
+  vrc6_wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])infones::memory::allocate(3 * APU_MAX_SAMPLES_PER_SYNC);
+  if (!vrc6_wave_buffers) return;
   InfoNES_MemorySet((void *)vrc6_wave_buffers[0], 0, APU_MAX_SAMPLES_PER_SYNC);
   InfoNES_MemorySet((void *)vrc6_wave_buffers[1], 0, APU_MAX_SAMPLES_PER_SYNC);
   InfoNES_MemorySet((void *)vrc6_wave_buffers[2], 0, APU_MAX_SAMPLES_PER_SYNC);

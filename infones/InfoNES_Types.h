@@ -12,16 +12,18 @@
 /*-------------------------------------------------------------------*/
 /*  Type definition                                                  */
 /*-------------------------------------------------------------------*/
+#include <cstdint>
+
 #ifndef DWORD
-typedef unsigned long  DWORD;
+typedef std::uint32_t DWORD;
 #endif /* !DWORD */
 
 #ifndef WORD
-typedef unsigned short WORD;
+typedef std::uint16_t WORD;
 #endif /* !WORD */
 
 #ifndef BYTE
-typedef unsigned char  BYTE;
+typedef std::uint8_t BYTE;
 #endif /* !BYTE */
 
 /*-------------------------------------------------------------------*/

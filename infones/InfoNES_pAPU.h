@@ -201,7 +201,7 @@ void ApuWriteControl(WORD addr, BYTE value);
     ApuWriteControl(addr, value);             \
   }
 
-void InfoNES_pAPUInit(void);
+bool InfoNES_pAPUInit(void);
 void InfoNES_pAPUDone(void);
 void InfoNES_pAPUVsync(void);
 void InfoNES_pAPUHsync(bool enabled);

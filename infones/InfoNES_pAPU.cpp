@@ -2192,10 +2192,8 @@ void __not_in_flash_func(InfoNES_pAPUHsync)(bool enabled)
   auto n = n16 >> 16;
   leftSamples16 = n16 - (n << 16);
 
-  int bufferLeft = InfoNES_GetSoundBufferSize();
-  n = std::min<int>(bufferLeft, n);
+  // Host queue capacity must never change the emulated APU/DMC timeline.
 
-  if (enabled)
   {
     ApuRenderingWave1(n);
     ApuRenderingWave2(n);
@@ -2262,7 +2260,7 @@ void __not_in_flash_func(InfoNES_pAPUHsync)(bool enabled)
     }
 #endif
   }
-  else
+  if (!enabled)
   {
     memset(&wave_buffers[0][0], 0, n);
     memset(&wave_buffers[1][0], 0, n);
@@ -2277,7 +2275,8 @@ void __not_in_flash_func(InfoNES_pAPUHsync)(bool enabled)
 #endif
   }
 
-  InfoNES_SoundOutput(n,
+  const int submitted = std::clamp(InfoNES_GetSoundBufferSize(), 0, int(n));
+  InfoNES_SoundOutput(submitted,
                       wave_buffers[0], wave_buffers[1], wave_buffers[2],
                       wave_buffers[3], wave_buffers[4],
                       ApuVrc6Enable ? vrc6_wave_buffers[0] :
@@ -2300,8 +2299,10 @@ void __not_in_flash_func(InfoNES_pAPUHsync)(bool enabled)
 /*                                                                   */
 /*===================================================================*/
 
-void InfoNES_pAPUInit(void)
+bool InfoNES_pAPUInit(void)
 {
+  InfoNES_pAPUDone();
+  leftSamples16 = 0;
   /* Sound Hardware Init */
   InfoNES_SoundInit();
 
@@ -2357,14 +2358,15 @@ void InfoNES_pAPUInit(void)
   /*-------------------------------------------------------------------*/
   ApuC5Reg[0] = ApuC5Reg[1] = ApuC5Reg[2] = ApuC5Reg[3] = 0;
   ApuC5Enable = ApuC5Looping = ApuC5CurByte = ApuC5DpcmValue = 0;
-  ApuC5Freq = ApuC5Phaseacc;
+  ApuC5Freq = ApuC5Phaseacc = 0;
   ApuC5Address = ApuC5CacheAddr = 0;
   ApuC5DmaLength = ApuC5CacheDmaLength = 0;
 
   /*-------------------------------------------------------------------*/
   /*   Initialize Wave Buffers                                         */
   /*-------------------------------------------------------------------*/
-  wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])infones::port::allocate(5 * APU_MAX_SAMPLES_PER_SYNC);
+  wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])infones::memory::allocate(5 * APU_MAX_SAMPLES_PER_SYNC);
+  if (!wave_buffers) return false;
   InfoNES_MemorySet((void *)wave_buffers[0], 0, APU_MAX_SAMPLES_PER_SYNC);
   InfoNES_MemorySet((void *)wave_buffers[1], 0, APU_MAX_SAMPLES_PER_SYNC);
   InfoNES_MemorySet((void *)wave_buffers[2], 0, APU_MAX_SAMPLES_PER_SYNC);
@@ -2442,6 +2444,7 @@ void InfoNES_pAPUInit(void)
 
   entertime = getPassedClocks();
   cur_event = 0;
+  return true;
 }
 
 /*===================================================================*/

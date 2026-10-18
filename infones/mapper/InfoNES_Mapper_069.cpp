@@ -77,7 +77,8 @@ void Map69_Init()
    * Allocate the 3 tone-channel wave buffers the APU mixer will read. */
   Map69_5B_Reg = 0;
   ApuSunsoft5BEnable = 1;
-  s5b_wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])infones::port::allocate(3 * APU_MAX_SAMPLES_PER_SYNC);
+  s5b_wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])infones::memory::allocate(3 * APU_MAX_SAMPLES_PER_SYNC);
+  if (!s5b_wave_buffers) return;
   InfoNES_MemorySet((void *)s5b_wave_buffers[0], 0, APU_MAX_SAMPLES_PER_SYNC);
   InfoNES_MemorySet((void *)s5b_wave_buffers[1], 0, APU_MAX_SAMPLES_PER_SYNC);
   InfoNES_MemorySet((void *)s5b_wave_buffers[2], 0, APU_MAX_SAMPLES_PER_SYNC);

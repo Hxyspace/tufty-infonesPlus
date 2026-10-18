@@ -52,7 +52,8 @@ void Map19_Init()
   /* Allocate the CHR RAM once; InfoNES_Fin frees it. */
   if (!Map19_Chr_Ram)
   {
-    Map19_Chr_Ram = (BYTE *)infones::port::allocate(MAP19_CHR_RAM_SIZE);
+    Map19_Chr_Ram = (BYTE *)infones::memory::allocate(MAP19_CHR_RAM_SIZE);
+    if (!Map19_Chr_Ram) return;
     InfoNES_MemorySet(Map19_Chr_Ram, 0, MAP19_CHR_RAM_SIZE);
   }
 

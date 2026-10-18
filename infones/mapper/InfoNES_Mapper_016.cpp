@@ -634,7 +634,8 @@ void Map16_Init()
     /* An erased 24C0x reads $FF */
     if ( !Map16_Eeprom )
     {
-      Map16_Eeprom = (BYTE *)infones::port::allocate( MAP16_EEPROM_SIZE + MAP16_EEPROM01_SIZE );
+      Map16_Eeprom = (BYTE *)infones::memory::allocate( MAP16_EEPROM_SIZE + MAP16_EEPROM01_SIZE );
+      if (!Map16_Eeprom) return;
       InfoNES_MemorySet( Map16_Eeprom, 0xff, MAP16_EEPROM_SIZE + MAP16_EEPROM01_SIZE );
     }
     InfoNES_MemorySet( &Map16_Ee, 0, sizeof( Map16_Ee ) );

@@ -179,7 +179,8 @@ void Map30_Init()
   /* Allocate the 32KB CHR RAM once; Map30_Init is also the reset entry point. */
   if ( !Map30_Chr_Ram )
   {
-    Map30_Chr_Ram = (BYTE *)infones::port::allocate( MAP30_CHR_RAM_SIZE );
+    Map30_Chr_Ram = (BYTE *)infones::memory::allocate( MAP30_CHR_RAM_SIZE );
+    if (!Map30_Chr_Ram) return;
     if ( Map30_Chr_Ram )
       InfoNES_MemorySet( Map30_Chr_Ram, 0, MAP30_CHR_RAM_SIZE );
   }

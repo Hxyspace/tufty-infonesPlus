@@ -78,7 +78,8 @@ void Map13_Init()
   /* Allocate the 16KB CHR RAM once; Map13_Init is also the reset entry point. */
   if ( !Map13_Chr_Ram )
   {
-    Map13_Chr_Ram = (BYTE *)infones::port::allocate( MAP13_CHR_RAM_SIZE );
+    Map13_Chr_Ram = (BYTE *)infones::memory::allocate( MAP13_CHR_RAM_SIZE );
+    if (!Map13_Chr_Ram) return;
     if ( Map13_Chr_Ram )
       InfoNES_MemorySet( Map13_Chr_Ram, 0, MAP13_CHR_RAM_SIZE );
   }
