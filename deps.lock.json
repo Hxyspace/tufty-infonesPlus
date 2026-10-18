@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "dependencies": {
+    "pico-sdk": {
+      "url": "https://github.com/raspberrypi/pico-sdk.git",
+      "commit": "98a542c1a62fb549ffb5d66a3e5892b06276b670",
+      "release": "2.3.0",
+      "submodules": [
+        "lib/tinyusb"
+      ],
+      "radio_submodules": [
+        "lib/cyw43-driver",
+        "lib/btstack"
+      ]
+    },
+    "picotool": {
+      "url": "https://github.com/raspberrypi/picotool.git",
+      "commit": "6f6458d792b93685a11423b244a585eaa99eafcf"
+    },
+    "littlefs": {
+      "url": "https://github.com/littlefs-project/littlefs.git",
+      "commit": "6cb4e86540eca0d9ba62500a298385c9d863c8be",
+      "release": "2.11.3"
+    },
+    "cjson": {
+      "url": "https://github.com/DaveGamble/cJSON.git",
+      "commit": "c859b25da02955fef659d658b8f324b5cde87be3",
+      "release": "1.7.19"
+    },
+    "fatfs": {
+      "url": "https://github.com/abbrev/fatfs.git",
+      "commit": "ab8c36b6e2b595ee0d70c8db945a2a032658c0c7",
+      "release": "R0.14b",
+      "patches": [
+        "patch/fatfs/0001-external-config.patch"
+      ]
+    }
+  }
+}

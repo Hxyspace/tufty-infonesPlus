@@ -32,6 +32,11 @@ NES 2.0 文件头识别也不等于完整格式支持。测试只覆盖注明的
 应用使用 `nes_cartridge` 的受检加载入口。生命周期、初期 Mapper/NES 2.0
 支持范围和像素/音频约定见 [核心契约](docs/core-contract.md)。
 
+## 依赖
+
+设备依赖通过 `deps.lock.json` 固定版本，使用 `python3 -B tools/deps.py --radio` 准备。
+依赖检查和离线构建说明见 [构建](docs/building.md)。
+
 ## 许可与核心来源
 
 本项目采用 [GPL-3.0](LICENSE)。InfoNES 核心取自

@@ -1,0 +1,14 @@
+--- a/source/ff.h
++++ b/source/ff.h
+@@ -26,7 +26,11 @@
+ extern "C" {
+ #endif
+ 
++#ifdef TUFTY_FATFS_CONFIG
++#include TUFTY_FATFS_CONFIG
++#else
+ #include "ffconf.h"		/* FatFs configuration options */
++#endif
+ 
+ #if FF_DEFINED != FFCONF_DEF
+ #error Wrong configuration file (ffconf.h).
