@@ -17,6 +17,10 @@ void present_game(const presentation::GameFrame &screen);
 void pause(bool enabled);
 bool paused();
 void brightness(uint8_t percent);
+// Application/core0 requests; core1 applies after the current frame drains.
+// Runtime only, defaults on at boot. Repeating on retries a timed-out TE pin.
+void te_sync(bool enabled);
+bool te_requested();
 void prepare_reboot();
 struct Stats {uint32_t frames,dropped,last_us,worst_us,te_timeouts;bool te_enabled;uint32_t transfer_us;};
 Stats stats();

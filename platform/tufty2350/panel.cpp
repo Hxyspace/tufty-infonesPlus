@@ -33,6 +33,7 @@ static void command(uint8_t cmd,const char *data=nullptr,size_t n=0) {
 }
 void early_init(){gpio_init(TFT_LED_PIN);gpio_put(TFT_LED_PIN,0);gpio_set_dir(TFT_LED_PIN,GPIO_OUT);}
 void brightness(uint8_t percent){pwm_set_gpio_level(TFT_LED_PIN,backlight_pwm(percent/100.0f));}
+void te_sync(bool enabled){timing.configure(enabled);}
 void begin_frame(bool sync){
     idle();
     if(sync)timing.wait([]{return time_us_32();},[]{return gpio_get(TFT_TE_PIN);},[]{tight_loop_contents();});

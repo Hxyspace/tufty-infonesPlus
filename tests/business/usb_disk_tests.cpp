@@ -5,6 +5,7 @@
 #include "disk_ui.hpp"
 #include "fat_disk.hpp"
 #include "pico/stdlib.h"
+#include "tusb.h"
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -21,6 +22,8 @@ struct Stop {};
 uint32_t clock_us=0,deadline=1600000,last_poll=0,max_gap=0,frame_due=0,next_io=0,last_io=0;
 unsigned polls=0,reads=0,frames=0,writes=0,sleeps=0,light_changes=0,cancelled=0;
 unsigned transfer_frames=0;
+unsigned te_changes=0;
+bool requested_te=true;
 disk_ui::State rendered=disk_ui::State::Unavailable,front=disk_ui::State::Unavailable;
 bool stopped=false,held=false,write_ok=true,pumping=true,lights=false;
 bool inject_write=false,injected=false;
@@ -90,6 +93,8 @@ Stats stats(){return {};}
 static uint16_t buffers[2][1];
 uint16_t *menu_buffers[]={buffers[0],buffers[1]};
 void brightness(uint8_t) {}
+void te_sync(bool value) {++te_changes;requested_te=value;}
+bool te_requested() {return requested_te;}
 void prepare_reboot() {assert(false);}
 bool paused() {return stopped;}
 void pause(bool value) {pauses.push_back(value); stopped=value;}
@@ -143,6 +148,18 @@ bool replace_system_sector(uint32_t at,const uint8_t *data) {
 }
 }
 int main() {
+    // Feed real CDC0/Console dispatch. The switch is runtime-only; query and
+    // malformed commands must not change it or mark persistent State dirty.
+    pumping=false;usb::init(false);usb_test::console_connected=true;
+    const auto console=[](const char *text){usb_test::console_input=text;usb::poll();};
+    console("lcd te\n");assert(te_changes==0 && requested_te);
+    console("lcd te off\n");assert(te_changes==1 && !requested_te && !usb::dirty);
+    console("lcd te off extra\n");assert(te_changes==1 && !requested_te);
+    console("lcd te\n");assert(te_changes==1 && !requested_te);
+    console("lcd te on\n");assert(te_changes==2 && requested_te && !usb::dirty);
+    console("lcd te on\n");assert(te_changes==3 && requested_te); // Explicit retry.
+    usb_test::console_connected=false;
+    clock_us=last_poll=max_gap=polls=0;pumping=true;
     flashfat::disk.read=read; flashfat::disk.sector_size=4096;
     flashfat::disk.runtime_owned=true;
     usb::init(true); usb::acquire_disk(true);

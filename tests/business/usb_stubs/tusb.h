@@ -1,5 +1,10 @@
 #pragma once
 #include <cstdint>
+#include <string>
+namespace usb_test {
+inline bool console_connected=false;
+inline std::string console_input;
+}
 #define CFG_TUD_CDC_TX_BUFSIZE 512
 #define SCSI_SENSE_NOT_READY 2
 #define SCSI_SENSE_MEDIUM_ERROR 3
@@ -10,11 +15,14 @@ void tud_task();
 inline bool tud_mounted() {return true;}
 inline void tud_disconnect() {}
 inline void tud_deinit(uint8_t) {}
-inline bool tud_cdc_n_connected(uint8_t) {return false;}
+inline bool tud_cdc_n_connected(uint8_t n) {return n==0 && usb_test::console_connected;}
 inline uint32_t tud_cdc_n_write_available(uint8_t) {return CFG_TUD_CDC_TX_BUFSIZE;}
 inline uint32_t tud_cdc_n_write(uint8_t,const void *,uint32_t n) {return n;}
 inline void tud_cdc_n_write_flush(uint8_t) {}
-inline void tud_cdc_n_read_flush(uint8_t) {}
-inline uint32_t tud_cdc_n_available(uint8_t) {return 0;}
-inline int tud_cdc_n_read_char(uint8_t) {return -1;}
+inline void tud_cdc_n_read_flush(uint8_t n) {if(n==0)usb_test::console_input.clear();}
+inline uint32_t tud_cdc_n_available(uint8_t n) {return n==0?usb_test::console_input.size():0;}
+inline int tud_cdc_n_read_char(uint8_t n) {
+    if(n!=0 || usb_test::console_input.empty())return -1;
+    unsigned char c=usb_test::console_input.front();usb_test::console_input.erase(0,1);return c;
+}
 inline void tud_msc_set_sense(uint8_t,uint8_t,uint8_t,uint8_t) {}

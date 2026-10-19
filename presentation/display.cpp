@@ -22,6 +22,8 @@ static std::atomic<bool> disk_hold{false};
 static std::atomic<uint32_t> sent{0},dropped{0},last_us{0},worst_us{0},te_timeouts{0};
 static std::atomic<uint32_t> transfer_us{0};
 static std::atomic<bool> te_enabled{false};
+static std::atomic<int> pending_te{-1}; // -1: no request, 0: off, 1: on/retry
+static bool desired_te=true; // Application/core0 only.
 // Only core0 publishes brightness. Keep the panel dark until its first UI frame.
 static uint8_t desired_brightness=0;
 static bool visible=false;
@@ -32,6 +34,11 @@ void brightness(uint8_t percent){
     desired_brightness=percent>100?100:percent;
     if(visible)tufty::panel::brightness(desired_brightness);
 }
+void te_sync(bool enabled){
+    desired_te=enabled;
+    pending_te.store(enabled?1:0,std::memory_order_release);
+}
+bool te_requested(){return desired_te;}
 // Keep the conversion loop out of XIP even when the compiler inlines a
 // single-call-site helper; Flash and PSRAM share the external memory path.
 static void __no_inline_not_in_flash_func(frame)(unsigned id) {
@@ -61,11 +68,19 @@ static void __no_inline_not_in_flash_func(frame)(unsigned id) {
 static void core() {
     flash_safe_execute_core_init();
     tufty::panel::init(); ready.store(true,std::memory_order_release);
+    te_enabled.store(tufty::panel::sync_status().enabled,std::memory_order_relaxed);
     while(true) {
         if(pause_request.load(std::memory_order_acquire)) {
             pause_ack.store(true,std::memory_order_release);
             while(pause_request.load(std::memory_order_acquire)) tight_loop_contents();
             pause_ack.store(false,std::memory_order_release);
+        }
+        // Only core1 touches Timing, between fully drained frames. Do not
+        // interrupt a TE wait, DMA transfer or the Flash-safe pause handshake.
+        if(pending_te.load(std::memory_order_acquire)!=-1){
+            const int change=pending_te.exchange(-1,std::memory_order_acq_rel);
+            tufty::panel::te_sync(change==1);
+            te_enabled.store(tufty::panel::sync_status().enabled,std::memory_order_relaxed);
         }
         unsigned id=requested.load(std::memory_order_acquire);
         if(!disk_hold.load(std::memory_order_acquire) && completed.load(std::memory_order_relaxed)!=id){

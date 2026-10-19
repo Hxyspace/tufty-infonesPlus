@@ -69,6 +69,15 @@ int main(){
   timing.configure(true);us=0;
   timing.wait([&]{return us;},[]{return false;},[&]{us+=100;});
   assert(!timing.status().enabled && timing.status().timeouts==2);
+  // Off never reads the pin or clock, and re-enabling after timeout retries
+  // the full edge without erasing the cumulative failure count.
+  timing.configure(false);
+  timing.wait([]()->std::uint32_t{assert(false);return 0;},
+              []{assert(false);return false;},[]{assert(false);});
+  assert(!timing.status().enabled && !timing.status().timed_out && timing.status().timeouts==2);
+  timing.configure(true);us=0;idle=0;
+  timing.wait([&]{return us;},[&]{return idle>=3;},[&]{++us;++idle;});
+  assert(timing.status().enabled && !timing.status().timed_out && timing.status().timeouts==2 && idle==3);
   alignas(std::max_align_t) std::array<std::byte,4096> memory;
   tufty::Arena arena(memory.data(),memory.size());
   std::vector<void *> pointers;
