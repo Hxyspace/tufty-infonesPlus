@@ -13,36 +13,43 @@
 void tufty_service();
 namespace display {
 static uint16_t __uninitialized_psram("menu") menus[2][width*height];
-static uint16_t __uninitialized_psram("frames") games[2][256*height];
+static presentation::GameFrame __uninitialized_psram("frames") games[2];
 uint16_t *menu_buffers[2]={menus[0],menus[1]};
 uint16_t palette[512]{};
 static std::atomic<unsigned> requested{1}, completed{0};
 static std::atomic<bool> ready{false}, pause_request{false}, pause_ack{false};
 static std::atomic<bool> disk_hold{false};
 static std::atomic<uint32_t> sent{0},dropped{0},last_us{0},worst_us{0},te_timeouts{0};
+static std::atomic<uint32_t> transfer_us{0};
 static std::atomic<bool> te_enabled{false};
 // Only core0 publishes brightness. Keep the panel dark until its first UI frame.
 static uint8_t desired_brightness=0;
 static bool visible=false;
 alignas(4) static uint16_t columns[2][height];
+static uint16_t line_emphasis[height];
 void early_init(){tufty::panel::early_init();}
 void brightness(uint8_t percent){
     desired_brightness=percent>100?100:percent;
     if(visible)tufty::panel::brightness(desired_brightness);
 }
-static void frame(unsigned id) {
+// Keep the conversion loop out of XIP even when the compiler inlines a
+// single-call-site helper; Flash and PSRAM share the external memory path.
+static void __no_inline_not_in_flash_func(frame)(unsigned id) {
     const auto started=time_us_32();
     tufty::panel::begin_frame();
+    const auto transfer_started=time_us_32();
+    if(id>2)std::memcpy(line_emphasis,games[id-3].emphasis,sizeof line_emphasis);
     for(int x=0;x<width;++x) {
         uint16_t *col=columns[x&1];
         for(int y=0;y<height;++y) {
             uint16_t pixel=id<=2 ? menus[id-1][y*width+x] :
-                x>=32 && x<288 ? palette[games[id-3][y*256+x-32]&511] : 0;
+                x>=32 && x<288 ? palette[games[id-3].colors[x-32][y]|line_emphasis[y]] : 0;
             col[y]=__builtin_bswap16(pixel);
         }
         tufty::panel::send_column(col,height);
     }
     tufty::panel::end_frame();
+    transfer_us.store(time_us_32()-transfer_started,std::memory_order_relaxed);
     const uint32_t elapsed=time_us_32()-started;
     last_us.store(elapsed,std::memory_order_relaxed);
     if(elapsed>worst_us.load(std::memory_order_relaxed))worst_us.store(elapsed,std::memory_order_relaxed);
@@ -89,11 +96,11 @@ void present_disk(unsigned index) {
     requested.store(1+(index&1),std::memory_order_release);
     if(!visible) {visible=true; tufty::panel::brightness(desired_brightness);}
 }
-void present_game(const uint16_t *screen) {
+void present_game(const presentation::GameFrame &screen) {
     unsigned old=requested.load(std::memory_order_acquire);
     if(completed.load(std::memory_order_acquire)!=old){dropped.fetch_add(1,std::memory_order_relaxed);return;}
     unsigned index=old==3?1:0;
-    std::memcpy(games[index],screen,sizeof games[index]);
+    std::memcpy(&games[index],&screen,sizeof screen);
     requested.store(3+index,std::memory_order_release);
 }
 void pause(bool enabled) {
@@ -101,7 +108,7 @@ void pause(bool enabled) {
     while(pause_ack.load(std::memory_order_acquire)!=enabled) tight_loop_contents();
 }
 bool paused() {return pause_ack.load(std::memory_order_acquire);}
-Stats stats(){return {sent.load(),dropped.load(),last_us.load(),worst_us.load(),te_timeouts.load(),te_enabled.load()};}
+Stats stats(){return {sent.load(),dropped.load(),last_us.load(),worst_us.load(),te_timeouts.load(),te_enabled.load(),transfer_us.load()};}
 void prepare_reboot() {
     visible=false;
     if(!ready.load(std::memory_order_acquire)) {early_init(); return;}

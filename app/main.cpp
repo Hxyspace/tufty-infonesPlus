@@ -16,7 +16,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-static uint16_t __uninitialized_psram("screen") SCREEN[240][256];
+// Hot scanline writes stay in internal SRAM; only published frames use PSRAM.
+static presentation::GameFrame SCREEN;
+static uint32_t work_started=0;
 static presentation::FrameClock frame_clock;
 static const uint8_t *rom_data=nullptr;
 static size_t rom_bytes=0;
@@ -35,8 +37,15 @@ void tufty_service() {
         if(diagnostics::playing && previous)
             diagnostics::service_gap_max_us=std::max(diagnostics::service_gap_max_us,now-previous);
         servicing=true; previous=now; usb::poll();
+        const auto usb_done=time_us_32();
         if(ble_ready) ble::poll();
+        const auto ble_done=time_us_32();
         sample_local();
+        if(diagnostics::playing){
+            diagnostics::usb_max_us=std::max(diagnostics::usb_max_us,usb_done-now);
+            diagnostics::ble_max_us=std::max(diagnostics::ble_max_us,ble_done-usb_done);
+            if(diagnostics::working)diagnostics::service_work_us+=time_us_32()-now;
+        }
         servicing=false;
     }
 }
@@ -46,20 +55,27 @@ static void game_input(uint8_t &p1,uint8_t &p2,bool &quit) {
     p1=input::hub.nes(storage::config.swap_ab);p2=0;
     quit=input::hub.home() || usb::disk_requested || usb::rescan_requested || power::pending();
 }
-static void game_line(unsigned y,const uint16_t *pixels,uint8_t mask,bool pal) {
-    for(unsigned x=0;x<256;++x)SCREEN[y][x]=presentation::pixel_token(pixels[x],mask,pal);
+static void __not_in_flash_func(game_line)(unsigned y,const uint16_t *pixels,uint8_t mask,bool pal) {
+    SCREEN.line(y,pixels,mask,pal);
 }
 static void game_frame() {
-    static uint32_t work_started=0;
-    if(diagnostics::frames && work_started){
+    const auto publish_started=time_us_32();
+    diagnostics::rate.frame(publish_started);
+    display::present_game(SCREEN);
+    diagnostics::publish_last_us=time_us_32()-publish_started;
+    diagnostics::publish_max_us=std::max(diagnostics::publish_max_us,diagnostics::publish_last_us);
+    if(diagnostics::frames){
         diagnostics::work_last_us=time_us_32()-work_started;
         diagnostics::work_max_us=std::max(diagnostics::work_max_us,diagnostics::work_last_us);
     }
+    diagnostics::service_last_us=diagnostics::service_work_us;
+    diagnostics::working=false;
     ++diagnostics::frames;
-    display::present_game(&SCREEN[0][0]);
     uint32_t target=frame_clock.next(time_us_32());
     while(static_cast<int32_t>(time_us_32()-target)<0) {tufty_service();tight_loop_contents();}
     work_started=time_us_32();
+    diagnostics::service_work_us=0;
+    diagnostics::working=true;
 }
 static void game_message(const char *text){std::printf("NES: %s\n",text);}
 static void run_game() {
@@ -76,6 +92,7 @@ static void run_game() {
     if(!nes::infones_adapter::run(host,rom_data,rom_bytes,&error))
         std::snprintf(storage::error,sizeof storage::error,"%s",error?error:"Core failed");
     diagnostics::playing=false;
+    diagnostics::working=false;
 }
 static void flush_config() {
     if(!usb::dirty && !usb::save_requested) return;

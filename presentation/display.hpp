@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "game_frame.hpp"
 namespace display {
 constexpr int width=320, height=240;
 extern uint16_t *menu_buffers[2];
@@ -12,11 +13,11 @@ void present_menu(unsigned index);
 bool disk_ready();
 void present_disk(unsigned index);
 void hold_disk(bool enabled);
-void present_game(const uint16_t *screen);
+void present_game(const presentation::GameFrame &screen);
 void pause(bool enabled);
 bool paused();
 void brightness(uint8_t percent);
 void prepare_reboot();
-struct Stats {uint32_t frames,dropped,last_us,worst_us,te_timeouts;bool te_enabled;};
+struct Stats {uint32_t frames,dropped,last_us,worst_us,te_timeouts;bool te_enabled;uint32_t transfer_us;};
 Stats stats();
 }

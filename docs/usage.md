@@ -19,7 +19,7 @@ Console 设置：115200 波特率、关闭本地回显、启用 DTR。连接后�
 |---|---|
 | `help` | 显示命令列表 |
 | `status` | 查看文件系统、游戏数量及手柄状态 |
-| `nes stats` | 查看游戏帧数、模拟/转换耗时、轮询间隔、LCD 耗时/丢帧与 TE 状态 |
+| `nes stats` | 查看区间游戏 FPS、模拟/发布/服务耗时、USB/BLE 峰值、LCD 耗时/丢帧与 TE 状态 |
 | `brightness 1..100` | 调整屏幕亮度 |
 | `padid 1..65535` | 设置串口及 TGP BLE 手柄 ID，默认 1；XTARK HID 不使用 ID |
 | `swapab 0/1` | 关闭或启用 A/B 互换 |

@@ -1,5 +1,7 @@
 #include "presentation/frame_clock.hpp"
 #include "presentation/pixels.hpp"
+#include "presentation/game_frame.hpp"
+#include "presentation/frame_rate.hpp"
 #include "platform/tufty2350/arena.hpp"
 #include "platform/tufty2350/display_timing.hpp"
 #include <algorithm>
@@ -27,6 +29,36 @@ int main(){
     assert(pixel_token(color,1,false)==(color&0x30));
     assert(pixel_token(color,0x20,false)==pixel_token(color,0x40,true));
   }
+  // Check every pixel against the original nine-bit encoding, including
+  // per-line mask changes, PAL emphasis, grayscale and transparency markers.
+  GameFrame frame{};
+  std::uint16_t line[256];
+  for(bool pal:{false,true})for(unsigned pass=0;pass<2;++pass){
+    for(unsigned y=0;y<240;++y){
+      for(unsigned x=0;x<256;++x)line[x]=0x8000|((x*7+y*11)&63);
+      const auto mask=std::uint8_t(y+pass*240);
+      frame.line(y,line,mask,pal);
+    }
+    GameFrame published;
+    std::memcpy(&published,&frame,sizeof frame);
+    for(unsigned x=0;x<256;++x)for(unsigned y=0;y<240;++y){
+      const auto expected=pixel_token(0x8000|((x*7+y*11)&63),std::uint8_t(y+pass*240),pal);
+      assert(published.token(x,y)==expected);
+    }
+  }
+  FrameRate rate;
+  assert(rate.sample().fps_x100==0);
+  rate.frame(0xfffff000);assert(rate.sample().frames==0);
+  std::uint32_t at=0xfffff000;
+  for(unsigned n=0;n<600;++n){at+=16667;rate.frame(at);}
+  auto sample=rate.sample();
+  assert(sample.frames==600 && sample.elapsed_us==600*16667 && sample.fps_x100==5999);
+  assert(rate.sample().elapsed_us==0);
+  for(unsigned n=0;n<100000;++n){at+=50000;rate.frame(at);}
+  sample=rate.sample();
+  assert(sample.frames==100000 && sample.elapsed_us==5000000000ull && sample.fps_x100==2000);
+  rate={};rate.frame(100);rate.frame(33433);
+  assert(rate.sample().fps_x100==3000);
   tufty::panel::Timing timing;timing.configure(true);
   std::uint32_t us=0;unsigned idle=0;
   timing.wait([&]{return us;},[]{return true;},[&]{us+=100;++idle;});
