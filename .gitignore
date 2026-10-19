@@ -4,3 +4,7 @@
 __pycache__/
 *.pyc
 .cache/
+*.[nN][eE][sS]
+*.bak
+/roms/*
+!/roms/README.md

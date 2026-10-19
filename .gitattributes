@@ -1,2 +1,4 @@
 # Patch context contains intentional single-space lines and upstream whitespace.
 *.patch -whitespace
+# Preserve imported license texts verbatim.
+licenses/** -whitespace

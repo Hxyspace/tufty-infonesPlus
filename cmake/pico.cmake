@@ -1,0 +1,12 @@
+set(PICO_PLATFORM rp2350 CACHE STRING "Target platform")
+set(PICO_BOARD tufty2350 CACHE STRING "Board")
+set(PICO_BOARD_HEADER_DIRS "${CMAKE_CURRENT_LIST_DIR}/../board")
+set(PICO_PSRAM_SIZE_BYTES 8388608)
+set(PICO_SDK_PATH "${CMAKE_CURRENT_LIST_DIR}/../lib/pico-sdk" CACHE PATH "Pinned Pico SDK" FORCE)
+find_program(Python3_EXECUTABLE NAMES python3 REQUIRED)
+execute_process(COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_LIST_DIR}/../tools/deps.py" --radio --check
+  RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Prepare dependencies first: python3 tools/deps.py --radio\n${output}${error}")
+endif()
+include("${PICO_SDK_PATH}/external/pico_sdk_import.cmake")

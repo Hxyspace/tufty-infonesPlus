@@ -217,5 +217,30 @@ static void cartridge_loading() {
   rom[7]=0;assert(infones_adapter::load(rom.data(),rom.size(),&error));
   infones_adapter::unload();assert(allocations==0);
 }
+static void admitted_bank_bounds() {
+  for(auto mapper:nes::admitted_mappers)for(bool large:{false,true}){
+    unsigned prg_banks=large && mapper!=0 && mapper!=3?32:2;
+    unsigned chr_banks=mapper==2 || mapper==7?0:large && mapper!=0?mapper==3?4:32:1;
+    std::vector<BYTE> rom(16+prg_banks*16384+chr_banks*8192);
+    std::memcpy(rom.data(),"NES\x1a",4);rom[4]=prg_banks;rom[5]=chr_banks;
+    rom[6]=(mapper&15)<<4;rom[7]=mapper&0xf0;
+    const char *error=nullptr;
+    assert(nes::infones_adapter::load(rom.data(),rom.size(),&error));
+    const auto inside=[](const BYTE *p,const BYTE *base,std::size_t bytes,std::size_t window){
+      const auto a=reinterpret_cast<std::uintptr_t>(p),b=reinterpret_cast<std::uintptr_t>(base);
+      return base && a>=b && a-b<=bytes && window<=bytes-(a-b);
+    };
+    const auto check=[&]{
+      for(auto p:ROMBANK)assert(inside(p,ROM,prg_banks*16384,8192));
+      for(unsigned slot=0;slot<8;++slot)
+        assert(inside(PPUBANK[slot],VROM,chr_banks*8192,1024) || inside(PPUBANK[slot],PPURAM,PPURAM_SIZE,1024));
+    };
+    check();
+    for(unsigned value=0;value<256;++value)for(WORD address:{0x8000,0x8001,0xa000,0xa001,0xc000,0xc001,0xe000,0xe001}){
+      MapperWrite(address,value);check();
+    }
+    nes::infones_adapter::unload();assert(allocations==0);
+  }
+}
 int main(){nrom();mapper48();clipping();cpu_operands();audio_backpressure();
-  cartridge_loading();lifecycle_and_oom();puts("core cartridge regression passed");}
+  cartridge_loading();lifecycle_and_oom();admitted_bank_bounds();puts("core cartridge regression passed");}

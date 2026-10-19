@@ -1,0 +1,104 @@
+{
+  "source": "https://github.com/TASEmulators/fceux/blob/master/src/ines-correct.h",
+  "description": "Small reviewed set of CRC/mapper/mirroring facts. CRC32 covers declared PRG+CHR, excluding header, trainer and trailing bytes. Not the full FCEUX database.",
+  "rules": [
+    {
+      "crc32": "9ea1dc76",
+      "name": "Rainbow Islands",
+      "mapper": 2,
+      "mirroring": "horizontal",
+      "prg_bytes": 131072,
+      "chr_bytes": 0,
+      "sha256": "0a3f0c3795700df26b436f091df252e915ed4d31a99ac904945fc9d130d43a39"
+    },
+    {
+      "crc32": "6d65cac6",
+      "name": "Terra Cresta",
+      "mapper": 2,
+      "mirroring": "horizontal"
+    },
+    {
+      "crc32": "e1b260da",
+      "name": "Argos no Senshi",
+      "mapper": 2,
+      "mirroring": "vertical"
+    },
+    {
+      "crc32": "1d0f4d6b",
+      "name": "Black Bass",
+      "mapper": 2,
+      "mirroring": "vertical"
+    },
+    {
+      "crc32": "266ce198",
+      "name": "City Adventure Touch",
+      "mapper": 2,
+      "mirroring": "vertical"
+    },
+    {
+      "crc32": "804f898a",
+      "name": "Dragon Unit",
+      "mapper": 2,
+      "mirroring": "vertical"
+    },
+    {
+      "crc32": "55773880",
+      "name": "Gilligan's Island",
+      "mapper": 2,
+      "mirroring": "vertical"
+    },
+    {
+      "crc32": "6e0eb43e",
+      "name": "Puss n Boots",
+      "mapper": 2,
+      "mirroring": "vertical"
+    },
+    {
+      "crc32": "2bb6a0f8",
+      "name": "Sherlock Holmes",
+      "mapper": 2,
+      "mirroring": "vertical"
+    },
+    {
+      "crc32": "28c11d24",
+      "name": "Sukeban Deka",
+      "mapper": 2,
+      "mirroring": "vertical"
+    },
+    {
+      "crc32": "02863604",
+      "name": "Sukeban Deka",
+      "mapper": 2,
+      "mirroring": "vertical"
+    },
+    {
+      "crc32": "419461d0",
+      "name": "Super Cars",
+      "mapper": 2,
+      "mirroring": "vertical"
+    },
+    {
+      "crc32": "af5d7aa2",
+      "name": "Clu Clu Land",
+      "mirroring": "horizontal"
+    },
+    {
+      "crc32": "fcdaca80",
+      "name": "Elevator Action",
+      "mapper": 0,
+      "mirroring": "horizontal"
+    },
+    {
+      "crc32": "b3c30bea",
+      "name": "Xevious",
+      "mapper": 0,
+      "mirroring": "horizontal"
+    },
+    {
+      "crc32": "d8eff0df",
+      "name": "Gradius (J)",
+      "mapper": 3,
+      "mirroring": "vertical"
+    }
+  ]
+}

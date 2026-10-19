@@ -1,7 +1,7 @@
 #pragma once
 // Only placement annotations depend on the board SDK.
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
-#include "pico/platform.h"
+#include "pico.h"
 #else
 #define __not_in_flash_func(name) name
 #define __not_in_flash(name)

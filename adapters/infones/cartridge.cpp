@@ -4,6 +4,7 @@
 #include "InfoNES_Port.h"
 #include "InfoNES_Region.h"
 #include <cstring>
+#include <algorithm>
 
 namespace nes::infones_adapter {
 bool validate_board(const Cartridge &i,const char **error) {
@@ -13,6 +14,8 @@ bool validate_board(const Cartridge &i,const char **error) {
   for(unsigned m=0;MapperTable[m].nMapperNo!=-1;++m)
     if(MapperTable[m].nMapperNo==i.mapper)found=true;
   if(!found)return reject("Unimplemented mapper; no legacy-number fallback");
+  if(std::find(admitted_mappers.begin(),admitted_mappers.end(),i.mapper)==admitted_mappers.end())
+    return reject("Mapper board geometry is not yet admitted by this loader");
   if(i.submapper)return reject("Submapper needs board-specific validation");
   const auto power_of_two=[](std::size_t n){return n && !(n&(n-1));};
   if(!power_of_two(i.prg_size) || (i.chr_size && !power_of_two(i.chr_size)) ||
