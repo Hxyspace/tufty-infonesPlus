@@ -7,6 +7,23 @@
 BYTE  Map69_IRQ_Enable;
 DWORD Map69_IRQ_Cnt;
 BYTE  Map69_Regs[ 1 ];
+static BYTE Map69_SramControl;
+
+BYTE Map69_ReadSram(WORD wAddr)
+{
+  // Disabled RAM is open bus; approximate it with the address high byte.
+  if ((Map69_SramControl & 0xc0) == 0x40) return wAddr >> 8;
+  return SRAMBANK[wAddr & 0x1fff];
+}
+
+void Map69_Sram(WORD wAddr, BYTE byData)
+{
+  if ((Map69_SramControl & 0xc0) == 0xc0)
+  {
+    SRAM[wAddr & 0x1fff] = byData;
+    SRAMwritten = true;
+  }
+}
 
 /* Sunsoft 5B audio chip — latched register index (written via $C000)
  * then a data byte is written via $E000. */
@@ -29,7 +46,7 @@ void Map69_Init()
   MapperWrite = Map69_Write;
 
   /* Write to SRAM */
-  MapperSram = Map0_Sram;
+  MapperSram = Map69_Sram;
 
   /* Write to APU */
   MapperApu = Map0_Apu;
@@ -51,6 +68,7 @@ void Map69_Init()
 
   /* Set SRAM Banks */
   SRAMBANK = SRAM;
+  Map69_SramControl = 0xc0;
 
   /* Set ROM Banks */
   ROMBANK0 = ROMPAGE( 0 );
@@ -129,6 +147,7 @@ void Map69_Write( WORD wAddr, BYTE byData )
          *   bits 5-0: PRG ROM bank (only meaningful when bit 6 = 0)
          */
         case 0x08:
+          Map69_SramControl = byData;
           if ( byData & 0x40 )
           {
             /* RAM selected — point SRAMBANK at the WRAM buffer */
@@ -137,7 +156,7 @@ void Map69_Write( WORD wAddr, BYTE byData )
           else
           {
             /* ROM selected */
-            byData %= ( NesHeader.byRomSize << 1 );
+            byData = (byData & 0x3f) % ( NesHeader.byRomSize << 1 );
             SRAMBANK = ROMPAGE( byData );
           }
           break;
@@ -177,7 +196,11 @@ void Map69_Write( WORD wAddr, BYTE byData )
           break;
 
         case 0x0d:
+          // Bit 7 clocks the counter, bit 0 enables its IRQ output. Any write
+          // acknowledges this mapper without clearing a pending APU IRQ.
           Map69_IRQ_Enable = byData;
+          if (!(ApuDmcIrqStatus() & 0x80) && !(APU_Reg[0x15] & 0x40))
+            IRQ_State = IRQ_Wiring;
           break;
 
         case 0x0e:
@@ -201,14 +224,12 @@ void Map69_HSync()
  *  Callback at HSync
  *
  */
-  if ( Map69_IRQ_Enable )
+  // Scanline-granularity approximation of the free-running 16-bit counter.
+  if (Map69_IRQ_Enable & 0x80)
   {
-    if ( Map69_IRQ_Cnt <= 113 )
-    {
+    const unsigned cycles = STEP_PER_SCANLINE;
+    if (Map69_IRQ_Cnt < cycles && (Map69_IRQ_Enable & 1))
       IRQ_REQ;
-      Map69_IRQ_Cnt = 0;
-    } else {
-      Map69_IRQ_Cnt -= 113;
-    }
+    Map69_IRQ_Cnt = (Map69_IRQ_Cnt - cycles) & 0xffff;
   }
 }

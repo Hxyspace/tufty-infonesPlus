@@ -42,14 +42,17 @@
 
 ## 卡带支持范围
 
-公共加载入口接纳 Mapper **0、1、2、3、4、7、48、66**，并施加以下约束：
+公共加载入口接纳 Mapper **0、1、2、3、4、7、48、66、69**，并施加以下约束：
 
-- PRG / CHR ROM 容量为二的幂，PRG 为 16–512 KiB，存在 CHR ROM 时为 8–256 KiB。
+- PRG ROM 容量为二的幂，范围为 16–512 KiB；存在 CHR ROM 时为 8–256 KiB。
+- CHR ROM 容量为二的幂，Mapper 4 例外：允许以 8 KiB 为单位追加银行，按实际 1 KiB 银行数取模寻址。
 - Mapper 0（NROM）：PRG 不超过 32 KiB，CHR ROM 不超过 8 KiB。
 - Mapper 3（CNROM）：PRG 不超过 32 KiB，必须有 CHR ROM 且不超过 32 KiB。
 - Mapper 2（UxROM）与 Mapper 7（AxROM）：仅使用 CHR RAM。
-- Mapper 48 与 66：必须有 CHR ROM。
+- Mapper 48、66 与 69（FME-7 / Sunsoft 5B）：必须有 CHR ROM。
 - 除 Mapper 0、1、3 外，PRG 不小于 32 KiB。
+
+Mapper 69 的 `$6000–$7FFF` 窗口支持 ROM、启用 RAM 和禁用 RAM；ROM 映射不可写，禁用 RAM 的读取以地址高字节近似开放总线。IRQ 计数器按扫描线推进，计数与中断输出开关独立，不提供逐 CPU 周期精度。
 
 准入列表定义于 `core_api/cartridge.hpp`，板型约束位于 `adapters/infones/cartridge.cpp`。核心中保留的其他 Mapper 实现不自动进入公共支持范围。扩展时需要同步补充板型约束与对应行为回归，见[架构中的扩展规则](architecture.md#扩展规则)。
 

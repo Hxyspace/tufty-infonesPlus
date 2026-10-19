@@ -358,6 +358,8 @@ void Map68_SyncMirror();
 void Map69_Init();
 void Map69_Write(WORD wAddr, BYTE byData);
 void Map69_HSync();
+BYTE Map69_ReadSram(WORD wAddr);
+void Map69_Sram(WORD wAddr, BYTE byData);
 
 void Map70_Init();
 void Map70_Write(WORD wAddr, BYTE byData);

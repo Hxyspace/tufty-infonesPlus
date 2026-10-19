@@ -18,7 +18,10 @@ bool validate_board(const Cartridge &i,const char **error) {
     return reject("Mapper board geometry is not yet admitted by this loader");
   if(i.submapper)return reject("Submapper needs board-specific validation");
   const auto power_of_two=[](std::size_t n){return n && !(n&(n-1));};
-  if(!power_of_two(i.prg_size) || (i.chr_size && !power_of_two(i.chr_size)) ||
+  // MMC3 CHR registers wrap by the actual number of 1 KiB banks. Translated
+  // images can append CHR banks without rounding the file up to a power of two.
+  const bool mmc3_chr=i.mapper==4 && i.chr_size && i.chr_size%8192==0;
+  if(!power_of_two(i.prg_size) || (i.chr_size && !power_of_two(i.chr_size) && !mmc3_chr) ||
      i.prg_size>512*1024 || i.chr_size>256*1024)
     return reject("Mapper bank geometry needs explicit validation");
   // Initial public loader contract. Other implementations stay in nes_core
@@ -33,7 +36,7 @@ bool validate_board(const Cartridge &i,const char **error) {
     case 3:
       if(i.prg_size>32768 || i.chr_size>32768)return reject("Invalid CNROM geometry");
       chr_required=true;break;
-    case 48:case 66:chr_required=true;break;
+    case 48:case 66:case 69:chr_required=true;break;
     default:return reject("Mapper board geometry is not yet admitted by this loader");
   }
   if((i.mapper!=0 && i.mapper!=1 && i.mapper!=3 && i.prg_size<32768) ||

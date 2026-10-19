@@ -242,5 +242,89 @@ static void admitted_bank_bounds() {
     nes::infones_adapter::unload();assert(allocations==0);
   }
 }
+static std::vector<BYTE> banked_cartridge(unsigned mapper,unsigned chr_banks,bool nes2=false) {
+  constexpr unsigned prg_bytes=128*1024;
+  std::vector<BYTE> rom(16+prg_bytes+chr_banks*8192);
+  std::memcpy(rom.data(),"NES\x1a",4);rom[4]=8;rom[5]=chr_banks;
+  rom[6]=(mapper&15)<<4;rom[7]=(mapper&0xf0)|(nes2?8:0);
+  for(unsigned n=0;n<prg_bytes/8192;++n)std::fill_n(rom.data()+16+n*8192,8192,n);
+  for(unsigned n=0;n<chr_banks*8;++n)std::fill_n(rom.data()+16+prg_bytes+n*1024,1024,n);
+  return rom;
+}
+static void mmc3_appended_chr() {
+  // Translations can append banks: 21 x 8 KiB = 168 KiB, not a power of two.
+  for(bool nes2:{false,true}) {
+    auto rom=banked_cartridge(4,21,nes2);const auto original=rom;
+    const char *error=nullptr;
+    assert(nes::infones_adapter::load(rom.data(),rom.size(),&error) && !error);
+    for(unsigned mode:{0u,0x80u})for(unsigned reg=0;reg<6;++reg)for(unsigned value=0;value<256;++value) {
+      MapperWrite(0x8000,mode|reg);MapperWrite(0x8001,value);
+      const unsigned slot=(reg<2?reg*2:reg+2)^(mode?4:0);
+      const unsigned bank=(reg<2?value&0xfe:value)%168;
+      assert(PPUBANK[slot]==VROM+bank*1024 && PPUBANK[slot][0]==bank);
+      if(reg<2)assert(PPUBANK[slot+1]==VROM+((bank+1)%168)*1024);
+      for(unsigned n=0;n<8;++n)assert(PPUBANK[n]>=VROM && PPUBANK[n]+1024<=VROM+168*1024);
+    }
+    assert(rom==original);
+    nes::infones_adapter::unload();assert(allocations==0);
+  }
+  auto rom=banked_cartridge(1,21);const char *error=nullptr;
+  assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error) && error);
+  rom=banked_cartridge(4,33);
+  assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error) && error);
+}
+static void sunsoft69() {
+  auto rom=banked_cartridge(69,16,true);const char *error=nullptr;
+  assert(nes::infones_adapter::load(rom.data(),rom.size(),&error) && !error);
+  const auto command=[](BYTE reg,BYTE value){MapperWrite(0x8000,reg);MapperWrite(0xa000,value);};
+  for(unsigned value=0;value<256;++value) {
+    for(unsigned slot=0;slot<8;++slot) {
+      command(slot,value);assert(PPUBANK[slot]==VROM+(value%128)*1024);
+      assert(PPUBANK[slot][0]==value%128);
+    }
+    for(unsigned slot=0;slot<3;++slot) {
+      command(9+slot,value);assert(ROMBANK[slot]==ROM+(value%16)*8192);
+      assert(ROMBANK[slot][0]==value%16);
+    }
+    command(8,value);
+    assert(SRAMBANK==(value&0x40?SRAM:ROM+((value&0x3f)%16)*8192));
+  }
+  for(unsigned mode=0;mode<4;++mode) {
+    command(12,mode);
+    const unsigned banks[4][4]={{0,1,0,1},{0,0,1,1},{0,0,0,0},{1,1,1,1}};
+    for(unsigned slot=0;slot<4;++slot)
+      assert(PPUBANK[NAME_TABLE0+slot]==PPURAM+(NAME_TABLE0+banks[mode][slot])*1024);
+  }
+  // Exercise the actual CPU bus, including attempted stores to ROM at $6000.
+  const BYTE code[]={0x78,0xa9,0x5a,0x8d,0x00,0x60,0xad,0x00,0x60,0x85,0x20,0x4c,0x0b,0xe0};
+  std::copy(std::begin(code),std::end(code),rom.begin()+16+15*8192);
+  const auto original=rom;
+  const auto access=[&](BYTE bank,BYTE expected) {
+    command(8,bank);PC=0xe000;K6502_Step(100);
+    assert(RAM[0x20]==expected && rom==original);
+  };
+  access(0xc0,0x5a);assert(SRAM[0]==0x5a);
+  access(0x83,3);assert(SRAM[0]==0x5a);
+  access(0x40,0x60);assert(SRAM[0]==0x5a);
+  // IRQ count enable and IRQ output enable are independent; any control
+  // write acknowledges the mapper, preserving an unrelated APU interrupt.
+  const auto counter=[&](unsigned count){command(14,count&255);command(15,count>>8);};
+  counter(1);command(13,1);
+  for(unsigned n=0;n<4;++n)MapperHSync();
+  assert(IRQ_State==IRQ_Wiring); // Output enabled, counter stopped.
+  command(13,0x80);MapperHSync();assert(IRQ_State==IRQ_Wiring);
+  counter(STEP_PER_SCANLINE);command(13,0x81);
+  MapperHSync();assert(IRQ_State==IRQ_Wiring); // At zero, not yet underflowed.
+  MapperHSync();assert(IRQ_State!=IRQ_Wiring);
+  command(13,0x81);assert(IRQ_State==IRQ_Wiring);
+  MapperHSync();assert(IRQ_State==IRQ_Wiring); // Counter wrapped, not stuck at zero.
+  counter(0);MapperHSync();assert(IRQ_State!=IRQ_Wiring);
+  APU_Reg[0x15]|=0x40;command(13,0);assert(IRQ_State!=IRQ_Wiring);
+  APU_Reg[0x15]&=~0x40;command(13,0);assert(IRQ_State==IRQ_Wiring);
+  nes::infones_adapter::unload();assert(allocations==0);
+  rom=banked_cartridge(69,0,true);rom[11]=7;
+  assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error) && error);
+}
 int main(){nrom();mapper48();clipping();cpu_operands();audio_backpressure();
-  cartridge_loading();lifecycle_and_oom();admitted_bank_bounds();puts("core cartridge regression passed");}
+  cartridge_loading();lifecycle_and_oom();admitted_bank_bounds();mmc3_appended_chr();sunsoft69();
+  puts("core cartridge regression passed");}
