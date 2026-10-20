@@ -76,6 +76,11 @@ void InfoNES_SoundClose(void);
 void InfoNES_SoundOutput(int samples, BYTE *wave1, BYTE *wave2, BYTE *wave3, BYTE *wave4, BYTE *wave5, BYTE *wave6);
 int InfoNES_GetSoundBufferSize();
 
+// Stable host capability, sampled once by pAPUInit. False skips sample
+// materialization; CPU-visible APU/DMC and expansion state still advance.
+// Queue capacity and mute are independent of this capability.
+bool InfoNES_HasSoundOutput();
+
 /* Print system message */
 void InfoNES_MessageBox(const char *pszMsg, ...);
 

@@ -121,6 +121,17 @@ ApuWritefunc pAPUSoundRegs[20] =
 BYTE (*wave_buffers)[APU_MAX_SAMPLES_PER_SYNC]; /* PAL worst case: 44100/50 = 882 */
 
 
+// Latched at initialization; queue backpressure and mute never select this path.
+static bool sound_output = true;
+
+// Between register events these oscillators add a constant uint32 increment
+// and mask to 29 bits. Repeated masked additions equal one multiply modulo
+// 2^29, including uint32 wraparound. With zero samples even the mask is skipped.
+static inline void ApuAdvancePhase(DWORD &index, DWORD skip, int n)
+{
+  if (n) index = (index + skip * DWORD(n)) & 0x1fffffff;
+}
+
 BYTE ApuCtrl;
 BYTE ApuCtrlNew;
 
@@ -912,6 +923,7 @@ int __not_in_flash_func(ApuWriteWave1)(int cycles, int event)
 /* Rendering rectangular wave #1                                     */
 /*-------------------------------------------------------------------*/
 
+template<bool Output>
 void __not_in_flash_func(ApuRenderingWave1)(int n)
 {
   ApuCtrlNew = ApuCtrl;
@@ -920,18 +932,25 @@ void __not_in_flash_func(ApuRenderingWave1)(int n)
   if ((ApuCtrlNew & 0x01) && ApuC1Atl &&
       !(ApuC1Freq < 8 || (!ApuC1SweepIncDec && ApuC1Freq > ApuC1FreqLimit)))
   {
-    auto vol = ApuC1Env ? ApuC1Vol : ApuC1EnvVol;
-    for (unsigned int i = 0; i < n; i++)
+    if constexpr (!Output)
     {
-      /* Wave Rendering */
-      ApuC1Index += ApuC1Skip;
-      ApuC1Index &= 0x1fffffff;
-      wave_buffers[0][i] = ApuC1Wave[ApuC1Index >> 24] * vol;
+      ApuAdvancePhase(ApuC1Index, ApuC1Skip, n);
+    }
+    else
+    {
+      auto vol = ApuC1Env ? ApuC1Vol : ApuC1EnvVol;
+      for (unsigned int i = 0; i < n; i++)
+      {
+        /* Wave Rendering */
+        ApuC1Index += ApuC1Skip;
+        ApuC1Index &= 0x1fffffff;
+        wave_buffers[0][i] = ApuC1Wave[ApuC1Index >> 24] * vol;
+      }
     }
   }
   else
   {
-    memset(wave_buffers[0], 0, 2 * n);
+    if constexpr (Output) memset(wave_buffers[0], 0, 2 * n);
   }
 }
 
@@ -999,6 +1018,7 @@ int __not_in_flash_func(ApuWriteWave2)(int cycles, int event)
 /* Rendering rectangular wave #2                                     */
 /*-------------------------------------------------------------------*/
 
+template<bool Output>
 void __not_in_flash_func(ApuRenderingWave2)(int n)
 {
   ApuCtrlNew = ApuCtrl;
@@ -1007,18 +1027,25 @@ void __not_in_flash_func(ApuRenderingWave2)(int n)
   if ((ApuCtrlNew & 0x02) && ApuC2Atl &&
       !(ApuC2Freq < 8 || (!ApuC2SweepIncDec && ApuC2Freq > ApuC2FreqLimit)))
   {
-    auto vol = ApuC2Env ? ApuC2Vol : ApuC2EnvVol;
-    for (unsigned int i = 0; i < n; i++)
+    if constexpr (!Output)
     {
-      /* Wave Rendering */
-      ApuC2Index += ApuC2Skip;
-      ApuC2Index &= 0x1fffffff;
-      wave_buffers[1][i] = ApuC2Wave[ApuC2Index >> 24] * vol;
+      ApuAdvancePhase(ApuC2Index, ApuC2Skip, n);
+    }
+    else
+    {
+      auto vol = ApuC2Env ? ApuC2Vol : ApuC2EnvVol;
+      for (unsigned int i = 0; i < n; i++)
+      {
+        /* Wave Rendering */
+        ApuC2Index += ApuC2Skip;
+        ApuC2Index &= 0x1fffffff;
+        wave_buffers[1][i] = ApuC2Wave[ApuC2Index >> 24] * vol;
+      }
     }
   }
   else
   {
-    memset(wave_buffers[1], 0, 2 * n);
+    if constexpr (Output) memset(wave_buffers[1], 0, 2 * n);
   }
 }
 
@@ -1094,6 +1121,7 @@ int __not_in_flash_func(ApuWriteWave3)(int cycles, int event)
 /* Rendering triangle wave #3                                        */
 /*-------------------------------------------------------------------*/
 
+template<bool Output>
 void __not_in_flash_func(ApuRenderingWave3)(int n)
 {
   ApuCtrlNew = ApuCtrl;
@@ -1109,17 +1137,24 @@ void __not_in_flash_func(ApuRenderingWave3)(int n)
      cutoff Mesen offers for the same reason. */
   if ((ApuCtrlNew & 0x04) && ApuC3Atl > 0 && ApuC3Llc > 0 && ApuC3Freq >= 2)
   {
-    for (unsigned int i = 0; i < n; i++)
+    if constexpr (!Output)
     {
-      /* Wave Rendering */
-      ApuC3Index += ApuC3Skip;
-      ApuC3Index &= 0x1fffffff;
-      wave_buffers[2][i] = triangle_50[ApuC3Index >> 24];
+      ApuAdvancePhase(ApuC3Index, ApuC3Skip, n);
+    }
+    else
+    {
+      for (unsigned int i = 0; i < n; i++)
+      {
+        /* Wave Rendering */
+        ApuC3Index += ApuC3Skip;
+        ApuC3Index &= 0x1fffffff;
+        wave_buffers[2][i] = triangle_50[ApuC3Index >> 24];
+      }
     }
   }
   else
   {
-    memset(wave_buffers[2], 0, 2 * n);
+    if constexpr (Output) memset(wave_buffers[2], 0, 2 * n);
   }
 }
 
@@ -1208,6 +1243,7 @@ int __not_in_flash_func(ApuWriteWave4)(int cycles, int event)
 /* Rendering noise channel #4                                        */
 /*-------------------------------------------------------------------*/
 
+template<bool Output>
 void __not_in_flash_func(ApuRenderingWave4)(int n)
 {
   ApuCtrlNew = ApuCtrl;
@@ -1232,22 +1268,22 @@ void __not_in_flash_func(ApuRenderingWave4)(int n)
       {
         if (ApuC4Env)
         {
-          wave_buffers[3][i] = ApuC4Vol;
+          if constexpr (Output) wave_buffers[3][i] = ApuC4Vol;
         }
         else
         {
-          wave_buffers[3][i] = ApuC4EnvVol;
+          if constexpr (Output) wave_buffers[3][i] = ApuC4EnvVol;
         }
       }
       else
       {
-        wave_buffers[3][i] = 0;
+        if constexpr (Output) wave_buffers[3][i] = 0;
       }
     }
   }
   else
   {
-    memset(wave_buffers[3], 0, n << 1);
+    if constexpr (Output) memset(wave_buffers[3], 0, n << 1);
   }
 }
 
@@ -1315,6 +1351,7 @@ int __not_in_flash_func(ApuWriteWave5)(int cycles, int event)
 /* Rendering DPCM channel #5                                         */
 /*-------------------------------------------------------------------*/
 
+template<bool Output>
 void __not_in_flash_func(ApuRenderingWave5)(int n)
 {
   ApuCtrlNew = ApuCtrl;
@@ -1369,7 +1406,7 @@ void __not_in_flash_func(ApuRenderingWave5)(int n)
     }
 
     /* Wave Rendering — always emit current DAC value */
-    wave_buffers[4][i] = ApuC5DpcmValue;
+    if constexpr (Output) wave_buffers[4][i] = ApuC5DpcmValue;
   }
 }
 
@@ -1431,6 +1468,7 @@ int __not_in_flash_func(ApuWriteMmc5Wave1)(int cycles, int event)
   return event;
 }
 
+template<bool Output>
 void __not_in_flash_func(ApuRenderingMmc5Pulse1)(int n)
 {
   ApuMmc5CtrlNew = ApuMmc5Ctrl;
@@ -1438,17 +1476,24 @@ void __not_in_flash_func(ApuRenderingMmc5Pulse1)(int n)
 
   if ((ApuMmc5CtrlNew & 0x01) && (ApuMmc5P1Atl || ApuMmc5P1Hold))
   {
-    auto vol = ApuMmc5P1Env ? ApuMmc5P1Vol : ApuMmc5P1EnvVol;
-    for (unsigned int i = 0; i < n; i++)
+    if constexpr (!Output)
     {
-      ApuMmc5P1Index += ApuMmc5P1Skip;
-      ApuMmc5P1Index &= 0x1fffffff;
-      mmc5_wave_buffers[0][i] = ApuMmc5P1Wave[ApuMmc5P1Index >> 24] * vol;
+      ApuAdvancePhase(ApuMmc5P1Index, ApuMmc5P1Skip, n);
+    }
+    else
+    {
+      auto vol = ApuMmc5P1Env ? ApuMmc5P1Vol : ApuMmc5P1EnvVol;
+      for (unsigned int i = 0; i < n; i++)
+      {
+        ApuMmc5P1Index += ApuMmc5P1Skip;
+        ApuMmc5P1Index &= 0x1fffffff;
+        mmc5_wave_buffers[0][i] = ApuMmc5P1Wave[ApuMmc5P1Index >> 24] * vol;
+      }
     }
   }
   else
   {
-    memset(mmc5_wave_buffers[0], 0, n);
+    if constexpr (Output) memset(mmc5_wave_buffers[0], 0, n);
   }
 }
 
@@ -1510,6 +1555,7 @@ int __not_in_flash_func(ApuWriteMmc5Wave2)(int cycles, int event)
   return event;
 }
 
+template<bool Output>
 void __not_in_flash_func(ApuRenderingMmc5Pulse2)(int n)
 {
   ApuMmc5CtrlNew = ApuMmc5Ctrl;
@@ -1517,17 +1563,24 @@ void __not_in_flash_func(ApuRenderingMmc5Pulse2)(int n)
 
   if ((ApuMmc5CtrlNew & 0x02) && (ApuMmc5P2Atl || ApuMmc5P2Hold))
   {
-    auto vol = ApuMmc5P2Env ? ApuMmc5P2Vol : ApuMmc5P2EnvVol;
-    for (unsigned int i = 0; i < n; i++)
+    if constexpr (!Output)
     {
-      ApuMmc5P2Index += ApuMmc5P2Skip;
-      ApuMmc5P2Index &= 0x1fffffff;
-      mmc5_wave_buffers[1][i] = ApuMmc5P2Wave[ApuMmc5P2Index >> 24] * vol;
+      ApuAdvancePhase(ApuMmc5P2Index, ApuMmc5P2Skip, n);
+    }
+    else
+    {
+      auto vol = ApuMmc5P2Env ? ApuMmc5P2Vol : ApuMmc5P2EnvVol;
+      for (unsigned int i = 0; i < n; i++)
+      {
+        ApuMmc5P2Index += ApuMmc5P2Skip;
+        ApuMmc5P2Index &= 0x1fffffff;
+        mmc5_wave_buffers[1][i] = ApuMmc5P2Wave[ApuMmc5P2Index >> 24] * vol;
+      }
     }
   }
   else
   {
-    memset(mmc5_wave_buffers[1], 0, n);
+    if constexpr (Output) memset(mmc5_wave_buffers[1], 0, n);
   }
 }
 
@@ -1585,6 +1638,7 @@ int __not_in_flash_func(ApuWriteVrc6Wave1)(int cycles, int event)
     return event;
 }
 
+template<bool Output>
 void __not_in_flash_func(ApuRenderingVrc6Pulse1)(int n)
 {
   ApuWriteVrc6Wave1(ApuCyclesPerSample * (n + 1), 0);
@@ -1592,17 +1646,22 @@ void __not_in_flash_func(ApuRenderingVrc6Pulse1)(int n)
   /* Halted by $9003 bit 0: leave channel silent for this sync. */
   if (ApuVrc6FreqCtrl & 0x01)
   {
-    memset(vrc6_wave_buffers[0], 0, n);
+    if constexpr (Output) memset(vrc6_wave_buffers[0], 0, n);
     return;
   }
 
   /* Disabled by $9002 bit 7. */
   if (!(ApuVrc6P1c & 0x80))
   {
-    memset(vrc6_wave_buffers[0], 0, n);
+    if constexpr (Output) memset(vrc6_wave_buffers[0], 0, n);
     return;
   }
 
+  if constexpr (!Output)
+  {
+    ApuAdvancePhase(ApuVrc6P1Index, ApuVrc6P1Skip, n);
+    return;
+  }
   /* Hoist invariants — these only change when an event reprograms $9000. */
   const BYTE vol  = ApuVrc6P1a & 0x0F;
   const BYTE duty = (ApuVrc6P1a >> 4) & 0x07;
@@ -1674,22 +1733,28 @@ int __not_in_flash_func(ApuWriteVrc6Wave2)(int cycles, int event)
     return event;
 }
 
+template<bool Output>
 void __not_in_flash_func(ApuRenderingVrc6Pulse2)(int n)
 {
   ApuWriteVrc6Wave2(ApuCyclesPerSample * (n + 1), 0);
 
   if (ApuVrc6FreqCtrl & 0x01)
   {
-    memset(vrc6_wave_buffers[1], 0, n);
+    if constexpr (Output) memset(vrc6_wave_buffers[1], 0, n);
     return;
   }
 
   if (!(ApuVrc6P2c & 0x80))
   {
-    memset(vrc6_wave_buffers[1], 0, n);
+    if constexpr (Output) memset(vrc6_wave_buffers[1], 0, n);
     return;
   }
 
+  if constexpr (!Output)
+  {
+    ApuAdvancePhase(ApuVrc6P2Index, ApuVrc6P2Skip, n);
+    return;
+  }
   const BYTE vol  = ApuVrc6P2a & 0x0F;
   const BYTE duty = (ApuVrc6P2a >> 4) & 0x07;
   const BYTE mode = ApuVrc6P2a >> 7;
@@ -1745,6 +1810,7 @@ int __not_in_flash_func(ApuWriteVrc6SawWave)(int cycles, int event)
     return event;
 }
 
+template<bool Output>
 void __not_in_flash_func(ApuRenderingVrc6Saw)(int n)
 {
   ApuWriteVrc6SawWave(ApuCyclesPerSample * (n + 1), 0);
@@ -1753,14 +1819,14 @@ void __not_in_flash_func(ApuRenderingVrc6Saw)(int n)
   if (ApuVrc6FreqCtrl & 0x01)
   {
     BYTE held = (ApuVrc6SawAccum >> 3) * 8;
-    memset(vrc6_wave_buffers[2], held, n);
+    if constexpr (Output) memset(vrc6_wave_buffers[2], held, n);
     return;
   }
 
   /* Disabled: silence. */
   if (!(ApuVrc6SawFreqH & 0x80))
   {
-    memset(vrc6_wave_buffers[2], 0, n);
+    if constexpr (Output) memset(vrc6_wave_buffers[2], 0, n);
     return;
   }
 
@@ -1793,7 +1859,7 @@ void __not_in_flash_func(ApuRenderingVrc6Saw)(int n)
     }
 
     /* Output high 5 bits, scaled to 0..248 */
-    vrc6_wave_buffers[2][i] = (ApuVrc6SawAccum >> 3) * 8;
+    if constexpr (Output) vrc6_wave_buffers[2][i] = (ApuVrc6SawAccum >> 3) * 8;
   }
 }
 
@@ -1950,8 +2016,20 @@ static inline void ApuS5B_AdvanceNoise(void)
 /*  once per sample inside a single combined loop rather than having */
 /*  3 per-channel render functions.                                  */
 /*===================================================================*/
+template<bool Output>
 void __not_in_flash_func(ApuRenderingSunsoft5B)(int n)
 {
+  if constexpr (!Output)
+  {
+    for (int ch = 0; ch < 3; ++ch)
+      ApuS5B_Index[ch] += ApuS5B_Skip[ch] * DWORD(n);
+    for (int i = 0; i < n; ++i)
+    {
+      ApuS5B_AdvanceEnvelope();
+      ApuS5B_AdvanceNoise();
+    }
+    return;
+  }
   const BYTE mixer = ApuS5B_Reg[0x07];
 
   for (int i = 0; i < n; i++)
@@ -1988,7 +2066,7 @@ void __not_in_flash_func(ApuRenderingSunsoft5B)(int n)
       BYTE vol = (vol_reg & 0x10) ? env_vol
                                   : ApuS5B_VolTable[vol_reg & 0x0F];
 
-      s5b_wave_buffers[ch][i] = gated ? vol : 0;
+      if constexpr (Output) s5b_wave_buffers[ch][i] = gated ? vol : 0;
     }
   }
 }
@@ -2186,7 +2264,8 @@ void InfoNES_pAPUVsync()
 
 uint32_t leftSamples16 = 0;
 
-void __not_in_flash_func(InfoNES_pAPUHsync)(bool enabled)
+template<bool Output>
+static void __not_in_flash_func(ApuHsync)(bool enabled)
 {
   auto n16 = ApuSamplesPerSync16 + leftSamples16;
   auto n = n16 >> 16;
@@ -2195,20 +2274,20 @@ void __not_in_flash_func(InfoNES_pAPUHsync)(bool enabled)
   // Host queue capacity must never change the emulated APU/DMC timeline.
 
   {
-    ApuRenderingWave1(n);
-    ApuRenderingWave2(n);
-    ApuRenderingWave3(n);
-    ApuRenderingWave4(n);
-    ApuRenderingWave5(n);
+    ApuRenderingWave1<Output>(n);
+    ApuRenderingWave2<Output>(n);
+    ApuRenderingWave3<Output>(n);
+    ApuRenderingWave4<Output>(n);
+    ApuRenderingWave5<Output>(n);
     ApuCtrl = ApuCtrlNew;
     /* Render and mix MMC5 expansion audio */
     if (ApuMmc5Enable)
     {
-      ApuRenderingMmc5Pulse1(n);
-      ApuRenderingMmc5Pulse2(n);
+      ApuRenderingMmc5Pulse1<Output>(n);
+      ApuRenderingMmc5Pulse2<Output>(n);
       ApuMmc5Ctrl = ApuMmc5CtrlNew;
 
-      for (unsigned int i = 0; i < n; i++)
+      if constexpr (Output) for (unsigned int i = 0; i < n; i++)
       {
         int mmc5_mix = (mmc5_wave_buffers[0][i] + mmc5_wave_buffers[1][i] + ApuMmc5PcmValue) / 3;
         int combined = wave_buffers[0][i] + mmc5_mix;
@@ -2218,11 +2297,11 @@ void __not_in_flash_func(InfoNES_pAPUHsync)(bool enabled)
     /* Render and mix VRC6 expansion audio */
     if (ApuVrc6Enable)
     {
-      ApuRenderingVrc6Pulse1(n);
-      ApuRenderingVrc6Pulse2(n);
-      ApuRenderingVrc6Saw(n);
+      ApuRenderingVrc6Pulse1<Output>(n);
+      ApuRenderingVrc6Pulse2<Output>(n);
+      ApuRenderingVrc6Saw<Output>(n);
 
-      for (unsigned int i = 0; i < n; i++)
+      if constexpr (Output) for (unsigned int i = 0; i < n; i++)
       {
         vrc6_wave_buffers[0][i] = (vrc6_wave_buffers[0][i]
                                  + vrc6_wave_buffers[1][i]
@@ -2241,9 +2320,9 @@ void __not_in_flash_func(InfoNES_pAPUHsync)(bool enabled)
      * InfoNES_SoundOutput compensates with a larger per-sample gain. */
     if (ApuSunsoft5BEnable)
     {
-      ApuRenderingSunsoft5B(n);
+      ApuRenderingSunsoft5B<Output>(n);
 
-      for (unsigned int i = 0; i < n; i++)
+      if constexpr (Output) for (unsigned int i = 0; i < n; i++)
       {
         s5b_wave_buffers[0][i] = (s5b_wave_buffers[0][i]
                                 + s5b_wave_buffers[1][i]
@@ -2256,41 +2335,51 @@ void __not_in_flash_func(InfoNES_pAPUHsync)(bool enabled)
      * form, so no further mixing pass is needed here.                  */
     if (ApuVrc7Enable)
     {
+      // FM feedback depends on previous samples. Preserve the full renderer
+      // even without output until a separate equivalent advance path exists.
       ApuRenderingVrc7(n);
     }
 #endif
   }
-  if (!enabled)
+  if constexpr (Output)
   {
-    memset(&wave_buffers[0][0], 0, n);
-    memset(&wave_buffers[1][0], 0, n);
-    memset(&wave_buffers[2][0], 0, n);
-    memset(&wave_buffers[3][0], 0, n);
-    memset(&wave_buffers[4][0], 0, n);
-    // Do not expose stale expansion samples when output is disabled.
-    if (vrc6_wave_buffers) memset(&vrc6_wave_buffers[0][0], 0, n);
-    if (s5b_wave_buffers) memset(&s5b_wave_buffers[0][0], 0, n);
+    if (!enabled)
+    {
+      memset(&wave_buffers[0][0], 0, n);
+      memset(&wave_buffers[1][0], 0, n);
+      memset(&wave_buffers[2][0], 0, n);
+      memset(&wave_buffers[3][0], 0, n);
+      memset(&wave_buffers[4][0], 0, n);
+      // Do not expose stale expansion samples when output is disabled.
+      if (vrc6_wave_buffers) memset(&vrc6_wave_buffers[0][0], 0, n);
+      if (s5b_wave_buffers) memset(&s5b_wave_buffers[0][0], 0, n);
 #if INFONES_EXTENDED_MAPPERS
-    if (vrc7_wave_buffer) memset(vrc7_wave_buffer, 0x80, n);
+      if (vrc7_wave_buffer) memset(vrc7_wave_buffer, 0x80, n);
 #endif
-  }
+    }
 
-  const int submitted = std::clamp(InfoNES_GetSoundBufferSize(), 0, int(n));
-  InfoNES_SoundOutput(submitted,
-                      wave_buffers[0], wave_buffers[1], wave_buffers[2],
-                      wave_buffers[3], wave_buffers[4],
-                      ApuVrc6Enable ? vrc6_wave_buffers[0] :
-                      (ApuSunsoft5BEnable ? s5b_wave_buffers[0] :
+    const int submitted = std::clamp(InfoNES_GetSoundBufferSize(), 0, int(n));
+    InfoNES_SoundOutput(submitted,
+                        wave_buffers[0], wave_buffers[1], wave_buffers[2],
+                        wave_buffers[3], wave_buffers[4],
+                        ApuVrc6Enable ? vrc6_wave_buffers[0] :
+                        (ApuSunsoft5BEnable ? s5b_wave_buffers[0] :
 #if INFONES_EXTENDED_MAPPERS
-                      (ApuVrc7Enable ? vrc7_wave_buffer : nullptr)
+                        (ApuVrc7Enable ? vrc7_wave_buffer : nullptr)
 #else
-                      nullptr
+                        nullptr
 #endif
-                      ));
-
+                        ));
+  }
 
   entertime = getPassedClocks();
   cur_event = 0;
+}
+
+void __not_in_flash_func(InfoNES_pAPUHsync)(bool enabled)
+{
+  if (sound_output) ApuHsync<true>(enabled);
+  else ApuHsync<false>(enabled);
 }
 
 /*===================================================================*/
@@ -2303,6 +2392,7 @@ bool InfoNES_pAPUInit(void)
 {
   InfoNES_pAPUDone();
   leftSamples16 = 0;
+  sound_output = InfoNES_HasSoundOutput();
   /* Sound Hardware Init */
   InfoNES_SoundInit();
 
@@ -2365,13 +2455,16 @@ bool InfoNES_pAPUInit(void)
   /*-------------------------------------------------------------------*/
   /*   Initialize Wave Buffers                                         */
   /*-------------------------------------------------------------------*/
-  wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])infones::memory::allocate(5 * APU_MAX_SAMPLES_PER_SYNC);
-  if (!wave_buffers) return false;
-  InfoNES_MemorySet((void *)wave_buffers[0], 0, APU_MAX_SAMPLES_PER_SYNC);
-  InfoNES_MemorySet((void *)wave_buffers[1], 0, APU_MAX_SAMPLES_PER_SYNC);
-  InfoNES_MemorySet((void *)wave_buffers[2], 0, APU_MAX_SAMPLES_PER_SYNC);
-  InfoNES_MemorySet((void *)wave_buffers[3], 0, APU_MAX_SAMPLES_PER_SYNC);
-  InfoNES_MemorySet((void *)wave_buffers[4], 0, APU_MAX_SAMPLES_PER_SYNC);
+  if (sound_output)
+  {
+    wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])infones::memory::allocate(5 * APU_MAX_SAMPLES_PER_SYNC);
+    if (!wave_buffers) return false;
+    InfoNES_MemorySet((void *)wave_buffers[0], 0, APU_MAX_SAMPLES_PER_SYNC);
+    InfoNES_MemorySet((void *)wave_buffers[1], 0, APU_MAX_SAMPLES_PER_SYNC);
+    InfoNES_MemorySet((void *)wave_buffers[2], 0, APU_MAX_SAMPLES_PER_SYNC);
+    InfoNES_MemorySet((void *)wave_buffers[3], 0, APU_MAX_SAMPLES_PER_SYNC);
+    InfoNES_MemorySet((void *)wave_buffers[4], 0, APU_MAX_SAMPLES_PER_SYNC);
+  }
 
   /*-------------------------------------------------------------------*/
   /*   Initialize MMC5 Audio                                           */

@@ -31,9 +31,10 @@ int main(){
   };
   const char *error=nullptr;
   assert(nes::infones_adapter::run(host,rom.data(),rom.size(),&error) && !error);
+  const int allocation_points=attempts;
   assert(frames==3 && services>700 && allocations==0);
   for(auto n:lines)assert(n==3);
-  for(int i=0;i<5;++i){fail_at=i;attempts=0;
+  for(int i=0;i<allocation_points;++i){fail_at=i;attempts=0;
     assert(!nes::infones_adapter::run(host,rom.data(),rom.size(),&error) && error && allocations==0);
   }
   fail_at=-1;frames=0;lines.fill(0);

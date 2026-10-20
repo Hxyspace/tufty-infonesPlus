@@ -20,6 +20,7 @@ static unsigned frames=0, services=0, samples=0;
 static std::size_t allocations=0;
 static int fail_at=-1, attempts=0;
 static int sound_capacity=APU_MAX_SAMPLES_PER_SYNC;
+static bool sound_output=true;
 static std::array<unsigned,240> drawn{};
 static std::vector<BYTE> prg(32768),chr(8192);
 namespace infones::port {
@@ -43,6 +44,7 @@ void InfoNES_Error(const char *,...){}
 void InfoNES_SoundInit(){}
 int InfoNES_SoundOpen(int,int){return 0;}
 void InfoNES_SoundClose(){}
+bool InfoNES_HasSoundOutput(){return sound_output;}
 int InfoNES_GetSoundBufferSize(){return sound_capacity;}
 void InfoNES_SoundOutput(int n,BYTE *a,BYTE *,BYTE *,BYTE *,BYTE *,BYTE *){assert(n>=0&&n<=APU_MAX_SAMPLES_PER_SYNC);samples+=n; if(n)assert(a);}
 void InfoNES_PreDrawLine(int y){assert(y>=0&&y<240);InfoNES_SetLineBuffer(frame.data()+y*256,256);}
@@ -130,6 +132,8 @@ static void cpu_operands() {
 }
 static void lifecycle_and_oom() {
   prg.resize(512*1024);chr.resize(512*1024);
+  for(bool output:{true,false}){
+  sound_output=output;
   for(unsigned mapper:{0,4,5,13,16,19,24,30,69,85,96,111,159,185,188,235,263,268,555}) {
     auto prepare=[&]{
       image(mapper);NesHeader.byRomSize=32;NesHeader.byVRomSize=64;
@@ -156,10 +160,13 @@ static void lifecycle_and_oom() {
   image(260);NesHeader.byInfo2|=8;NesHeader.byReserve[0]=1;
   assert(InfoNES_Init());assert(InfoNES_Reset()<0);assert(MapperNo==260);
   InfoNES_Fin();assert(allocations==0);
+  }
+  sound_output=true;
 }
 static void audio_backpressure() {
   struct Snapshot {std::array<BYTE,RAM_SIZE> ram;int dmc;std::uint32_t cycles;ApuDmcIrq_t irq;};
-  const auto run=[](int capacity,bool mute){
+  const auto run=[](int capacity,bool mute,bool output){
+    sound_output=output;
     image(0);assert(InfoNES_Init());assert(InfoNES_Reset()==0);
     // DMC interrupt, fastest rate, 65-byte sample from $C000.
     const BYTE code[]={0xa9,0x8f,0x8d,0x10,0x40,0xa9,0,0x8d,0x12,0x40,
@@ -169,16 +176,16 @@ static void audio_backpressure() {
     sound_capacity=capacity;APU_Mute=mute;frames=samples=0;InfoNES_Cycle();
     Snapshot s{};std::copy_n(RAM,RAM_SIZE,s.ram.begin());s.dmc=ApuC5DmaLength;
     s.cycles=K6502_Now();s.irq=ApuDmcIrq;
-    if(capacity<=0)assert(samples==0);else assert(samples>0);
+    if(capacity<=0 || !output)assert(samples==0);else assert(samples>0);
     InfoNES_Fin();return s;
   };
-  const auto reference=run(APU_MAX_SAMPLES_PER_SYNC,false);
-  for(auto capacity:{0,-10,1,APU_MAX_SAMPLES_PER_SYNC})for(bool mute:{false,true}){
-    const auto s=run(capacity,mute);
+  const auto reference=run(APU_MAX_SAMPLES_PER_SYNC,false,true);
+  for(auto capacity:{0,-10,1,APU_MAX_SAMPLES_PER_SYNC})for(bool mute:{false,true})for(bool output:{true,false}){
+    const auto s=run(capacity,mute,output);
     assert(s.ram==reference.ram && s.dmc==reference.dmc && s.cycles==reference.cycles);
     assert(std::memcmp(&s.irq,&reference.irq,sizeof s.irq)==0);
   }
-  sound_capacity=APU_MAX_SAMPLES_PER_SYNC;APU_Mute=0;
+  sound_capacity=APU_MAX_SAMPLES_PER_SYNC;APU_Mute=0;sound_output=true;
 }
 static void cartridge_loading() {
   using namespace nes;

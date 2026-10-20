@@ -39,6 +39,7 @@ void InfoNES_PostDrawLine(int y){
 void InfoNES_SoundInit(){}
 int InfoNES_SoundOpen(int,int){return 0;}
 void InfoNES_SoundClose(){}
+bool InfoNES_HasSoundOutput(){return false;}
 int InfoNES_GetSoundBufferSize(){return 0;}
 void InfoNES_SoundOutput(int,BYTE *,BYTE *,BYTE *,BYTE *,BYTE *,BYTE *){}
 namespace infones::port {
