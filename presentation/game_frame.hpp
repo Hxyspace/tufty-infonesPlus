@@ -4,7 +4,7 @@
 namespace presentation {
 // The host supplies one PPUMASK value per scanline. Store emphasis once per
 // line and six-bit colors per pixel, preserving all nine token bits. Columns
-// are contiguous so the LCD consumer streams PSRAM instead of striding rows.
+// are contiguous so the LCD consumer reads consecutive colors, not strided rows.
 struct GameFrame {
   static constexpr unsigned width=256,height=240;
   std::uint8_t colors[width][height];

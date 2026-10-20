@@ -4,6 +4,39 @@
 namespace tufty::panel {
 constexpr uint32_t kTeTimeoutUs = 50000;
 struct SyncStatus { bool enabled = false, timed_out = false; uint32_t timeouts = 0; };
+struct EdgeStats {
+  uint32_t rises=0,period_us=0,min_period_us=0,max_period_us=0;
+  uint32_t high_us=0,low_us=0,ambiguous=0,gaps=0;
+};
+// Owned by the display-core GPIO ISR. Snapshot with that core's IRQs disabled.
+// These are OBSERVED edges: interrupt masking can coalesce hardware events.
+class TeEdges {
+ public:
+  void edge(bool rise,bool fall,uint32_t now) {
+    if(rise && fall){++stats_.ambiguous;reset_sequence();return;}
+    if(rise){
+      ++stats_.rises;
+      if(have_rise_){
+        const uint32_t period=now-rise_at_;
+        stats_.period_us=period;
+        if(!stats_.min_period_us || period<stats_.min_period_us)stats_.min_period_us=period;
+        if(period>stats_.max_period_us)stats_.max_period_us=period;
+      }
+      if(have_fall_)stats_.low_us=now-fall_at_;
+      rise_at_=now;have_rise_=true;
+    } else if(fall){
+      if(have_rise_)stats_.high_us=now-rise_at_;
+      fall_at_=now;have_fall_=true;
+    }
+  }
+  void gap(){++stats_.gaps;reset_sequence();}
+  EdgeStats stats() const{return stats_;}
+ private:
+  void reset_sequence(){have_rise_=have_fall_=false;}
+  EdgeStats stats_;
+  uint32_t rise_at_=0,fall_at_=0;
+  bool have_rise_=false,have_fall_=false;
+};
 // Hardware-independent policy shared by the board driver and stuck-pin tests.
 class Timing {
  public:

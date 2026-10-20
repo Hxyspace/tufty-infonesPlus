@@ -12,12 +12,13 @@
 #include "ble.hpp"
 #include "controllers.hpp"
 #include "diagnostics.hpp"
+#include "memory_stats.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-// Hot scanline writes stay in internal SRAM; only published frames use PSRAM.
-static presentation::GameFrame SCREEN;
+// Producer owns one of three SRAM frames; publishing exchanges ownership.
+static presentation::GameFrame *SCREEN=nullptr;
 static uint32_t work_started=0;
 static presentation::FrameClock frame_clock;
 static const uint8_t *rom_data=nullptr;
@@ -34,6 +35,7 @@ void tufty_service() {
     uint32_t now=time_us_32();
     static bool servicing=false;
     if(usb_ready && !servicing && now-previous>=1000) {
+        tufty::memory::sample_stack(0);
         if(diagnostics::playing && previous)
             diagnostics::service_gap_max_us=std::max(diagnostics::service_gap_max_us,now-previous);
         servicing=true; previous=now; usb::poll();
@@ -56,12 +58,12 @@ static void game_input(uint8_t &p1,uint8_t &p2,bool &quit) {
     quit=input::hub.home() || usb::disk_requested || usb::rescan_requested || power::pending();
 }
 static void __not_in_flash_func(game_line)(unsigned y,const uint16_t *pixels,uint8_t mask,bool pal) {
-    SCREEN.line(y,pixels,mask,pal);
+    SCREEN->line(y,pixels,mask,pal);
 }
 static void game_frame() {
     const auto publish_started=time_us_32();
     diagnostics::rate.frame(publish_started);
-    display::present_game(SCREEN);
+    SCREEN=&display::present_game();
     diagnostics::publish_last_us=time_us_32()-publish_started;
     diagnostics::publish_max_us=std::max(diagnostics::publish_max_us,diagnostics::publish_last_us);
     if(diagnostics::frames){
@@ -88,9 +90,11 @@ static void run_game() {
     else if(image.timing==3)frame_clock.reset(now,1773448,341*312,3);
     else frame_clock.reset(now,1789773,341*262,3);
     const nes::Host host{tufty_service,game_input,game_line,game_frame,game_message};
+    SCREEN=&display::game_buffer();display::begin_game();
     diagnostics::reset();diagnostics::playing=true;
     if(!nes::infones_adapter::run(host,rom_data,rom_bytes,&error))
         std::snprintf(storage::error,sizeof storage::error,"%s",error?error:"Core failed");
+    display::end_game();
     diagnostics::playing=false;
     diagnostics::working=false;
 }

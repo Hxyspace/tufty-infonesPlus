@@ -6,6 +6,7 @@
 #include "fat_disk.hpp"
 #include "pico/stdlib.h"
 #include "tusb.h"
+#include "memory_stats.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -87,6 +88,7 @@ bool command(const char *) {return false;}
 void activity() {}
 }
 namespace ble {bool command(const char *) {return false;}}
+namespace tufty::memory {Stats stats(){return {};}}
 namespace controllers {bool command(const char *) {return false;} void set_controller_id(uint16_t) {}}
 namespace display {
 Stats stats(){return {};}

@@ -9,6 +9,7 @@
 #include "controllers.hpp"
 #include "disk_ui.hpp"
 #include "disk_activity.hpp"
+#include "memory_stats.hpp"
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/stdio/driver.h"
@@ -164,6 +165,37 @@ static void command(const char *s) {
             (unsigned long)diagnostics::ble_max_us,
             (unsigned long)d.frames,(unsigned long)d.dropped,(unsigned long)d.last_us,
             (unsigned long)d.worst_us,d.te_enabled,display::te_requested(),(unsigned long)d.te_timeouts,(unsigned long)d.transfer_us);
+        static display::Stats previous;
+        static uint32_t previous_at=0;
+        static bool have_previous=false;
+        const uint32_t now=time_us_32(),elapsed=have_previous?now-previous_at:0;
+        const uint32_t frames=have_previous?d.frames-previous.frames:0;
+        const uint32_t games=have_previous?d.game_frames-previous.game_frames:0;
+        const uint32_t fps=elapsed?uint64_t(frames)*100000000/elapsed:0;
+        const uint32_t game_fps=elapsed?uint64_t(games)*100000000/elapsed:0;
+        std::printf("LCD fps=%lu.%02lu game_fps=%lu.%02lu window_frames=%lu window_game_frames=%lu window_ms=%lu wait_avg_us=%lu age_avg_us=%lu game_transfer_avg_us=%lu\n"
+                    "LCD queue: published=%lu replaced=%lu discarded=%lu game_frames=%lu sequence=%lu publish_copy_bytes=0 wait_us=%lu max_wait_us=%lu age_us=%lu max_age_us=%lu interval_us=%lu max_interval_us=%lu\n"
+                    "TE edges=%lu period_us=%lu min_period_us=%lu max_period_us=%lu high_us=%lu low_us=%lu ambiguous=%lu gaps=%lu\n",
+            (unsigned long)(fps/100),(unsigned long)(fps%100),
+            (unsigned long)(game_fps/100),(unsigned long)(game_fps%100),
+            (unsigned long)frames,(unsigned long)games,(unsigned long)(elapsed/1000),
+            (unsigned long)(frames?(d.wait_total_us-previous.wait_total_us)/frames:0),
+            (unsigned long)(games?(d.age_total_us-previous.age_total_us)/games:0),
+            (unsigned long)(games?(d.game_transfer_total_us-previous.game_transfer_total_us)/games:0),
+            (unsigned long)d.published,(unsigned long)d.replaced,(unsigned long)d.discarded,
+            (unsigned long)d.game_frames,(unsigned long)d.game_sequence,
+            (unsigned long)d.wait_us,(unsigned long)d.wait_max_us,(unsigned long)d.age_us,(unsigned long)d.age_max_us,
+            (unsigned long)d.interval_us,(unsigned long)d.interval_max_us,
+            (unsigned long)d.te_edges,(unsigned long)d.te_period_us,(unsigned long)d.te_min_period_us,
+            (unsigned long)d.te_max_period_us,(unsigned long)d.te_high_us,(unsigned long)d.te_low_us,
+            (unsigned long)d.te_ambiguous,(unsigned long)d.te_gaps);
+        previous=d;previous_at=now;have_previous=true;
+        const auto memory=tufty::memory::stats();
+        std::printf("MEM heap_used=%lu heap_free=%lu heap_unclaimed=%lu arena_used=%lu arena_peak=%lu small_fallbacks=%lu alloc_failures=%lu stack0_sample_min=%lu stack1_sample_min=%lu\n",
+            (unsigned long)memory.heap_used,(unsigned long)memory.heap_free,(unsigned long)memory.heap_unclaimed,
+            (unsigned long)memory.arena_used,(unsigned long)memory.arena_peak,
+            (unsigned long)memory.small_fallbacks,(unsigned long)memory.allocation_failures,
+            (unsigned long)memory.stack0_sample_min,(unsigned long)memory.stack1_sample_min);
     } else if(!std::strcmp(s,"lcd te") || !std::strcmp(s,"lcd te on") || !std::strcmp(s,"lcd te off")) {
         if(!std::strcmp(s,"lcd te on"))display::te_sync(true);
         else if(!std::strcmp(s,"lcd te off"))display::te_sync(false);

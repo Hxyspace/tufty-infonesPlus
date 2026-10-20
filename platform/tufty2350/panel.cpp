@@ -6,6 +6,8 @@
 #include "hardware/dma.h"
 #include "hardware/pwm.h"
 #include "hardware/clocks.h"
+#include "hardware/irq.h"
+#include "hardware/sync.h"
 #include "pico/stdlib.h"
 #include "parallel.pio.h"
 #include <cmath>
@@ -14,6 +16,25 @@ namespace tufty::panel {
 static PIO pio=pio1;
 static uint sm,dma;
 static Timing timing;
+static TeEdges edges;
+static constexpr uint32_t kTeEdges=GPIO_IRQ_EDGE_RISE|GPIO_IRQ_EDGE_FALL;
+static void __not_in_flash_func(te_irq)(){
+    const uint32_t events=gpio_get_irq_event_mask(TFT_TE_PIN)&kTeEdges;
+    if(!events)return;
+    gpio_acknowledge_irq(TFT_TE_PIN,events);
+    edges.edge(events&GPIO_IRQ_EDGE_RISE,events&GPIO_IRQ_EDGE_FALL,time_us_32());
+}
+EdgeStats edge_stats(){
+    const auto irq=save_and_disable_interrupts();
+    const auto result=edges.stats();
+    restore_interrupts(irq);
+    return result;
+}
+void capture_pause(bool paused){
+    gpio_set_irq_enabled(TFT_TE_PIN,kTeEdges,false);
+    if(paused)edges.gap();
+    if(!paused)gpio_set_irq_enabled(TFT_TE_PIN,kTeEdges,true);
+}
 static void idle() {
     dma_channel_wait_for_finish_blocking(dma);
     uint32_t mask=1u<<(sm+PIO_FDEBUG_TXSTALL_LSB);
@@ -34,9 +55,12 @@ static void command(uint8_t cmd,const char *data=nullptr,size_t n=0) {
 void early_init(){gpio_init(TFT_LED_PIN);gpio_put(TFT_LED_PIN,0);gpio_set_dir(TFT_LED_PIN,GPIO_OUT);}
 void brightness(uint8_t percent){pwm_set_gpio_level(TFT_LED_PIN,backlight_pwm(percent/100.0f));}
 void te_sync(bool enabled){timing.configure(enabled);}
-void begin_frame(bool sync){
+void wait_for_frame(){
     idle();
-    if(sync)timing.wait([]{return time_us_32();},[]{return gpio_get(TFT_TE_PIN);},[]{tight_loop_contents();});
+    timing.wait([]{return time_us_32();},[]{return gpio_get(TFT_TE_PIN);},[]{tight_loop_contents();});
+}
+void begin_frame(bool sync){
+    if(sync)wait_for_frame();else idle();
     // Track clock changes without exceeding the panel's PIO instruction rate.
     pio_sm_set_clkdiv(pio,sm,ceilf(2.0f*clock_get_hz(clk_sys)/(44.0f*MHZ))*0.5f);
     uint8_t cmd=0x2c;gpio_put(TFT_DC_PIN,0);gpio_put(TFT_CS_PIN,0);
@@ -46,7 +70,7 @@ void send_column(const uint16_t *p,unsigned count){
     idle();dma_channel_set_trans_count(dma,count*2,false);dma_channel_set_read_addr(dma,p,true);
 }
 void end_frame(){idle();gpio_put(TFT_CS_PIN,1);}
-void shutdown(){brightness(0);command(0x28);sleep_ms(20);pio_sm_set_enabled(pio,sm,false);}
+void shutdown(){gpio_set_irq_enabled(TFT_TE_PIN,kTeEdges,false);brightness(0);command(0x28);sleep_ms(20);pio_sm_set_enabled(pio,sm,false);}
 SyncStatus sync_status(){return timing.status();}
 void init() {
     pio_set_gpio_base(pio,16);
@@ -77,7 +101,8 @@ void init() {
     command(0x01); sleep_ms(150);
     command(0x3a,"\x05",1); command(0xb2,"\x0c\x0c\x00\x33\x33",5);
     command(0xc0,"\x2c",1); command(0xc2,"\x01",1); command(0xc3,"\x0f",1);
-    command(0xc4,"\x20",1); command(0xd0,"\xa4\xa1",2); command(0xc6,"\x0f",1);
+    command(0xc4,"\x20",1); command(0xd0,"\xa4\xa1",2);
+    command(0xc6,"\x0e",1); // Nominal 62 Hz; actual period is observable on TE.
     command(0xb0,"\x00\xc0",2); command(0xb7,"\x35",1); command(0xbb,"\x1b",1);
     command(0xe0,"\xf0\x00\x06\x04\x05\x05\x31\x44\x48\x36\x12\x12\x2b\x34",14);
     command(0xe1,"\xf0\x0b\x0f\x0f\x0d\x26\x31\x43\x47\x38\x14\x14\x2c\x32",14);
@@ -91,7 +116,11 @@ void init() {
     for(unsigned x=0;x<320;++x)send_column(black,240);
     end_frame();
     gpio_init(TFT_TE_PIN);gpio_set_dir(TFT_TE_PIN,GPIO_IN);
+    // Raw handler is private to core1; do not replace core0's radio/button IRQ.
+    gpio_add_raw_irq_handler(TFT_TE_PIN,te_irq);
     command(0x35,"\x00",1);command(0x44,"\x00\x00",2);
     timing.configure(true);command(0x29);
+    gpio_set_irq_enabled(TFT_TE_PIN,kTeEdges,true);
+    irq_set_enabled(IO_IRQ_BANK0,true);
 }
 }

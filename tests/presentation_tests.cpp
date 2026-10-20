@@ -78,6 +78,26 @@ int main(){
   timing.configure(true);us=0;idle=0;
   timing.wait([&]{return us;},[&]{return idle>=3;},[&]{++us;++idle;});
   assert(timing.status().enabled && !timing.status().timed_out && timing.status().timeouts==2 && idle==3);
+  // Continuous TE observation covers transfer-time edges too. Interrupt gaps
+  // and coalesced rise+fall flags must never manufacture a physical period.
+  tufty::panel::TeEdges edges;
+  edges.edge(true,false,0xfffff000);
+  edges.edge(false,true,0xfffff000+800);
+  edges.edge(true,false,uint32_t(0xfffff000+16667));
+  assert(edges.stats().rises==2 && edges.stats().period_us==16667);
+  assert(edges.stats().high_us==800 && edges.stats().low_us==15867);
+  edges.edge(false,true,uint32_t(0xfffff000+16667+900));
+  edges.edge(true,false,uint32_t(0xfffff000+33335));
+  assert(edges.stats().min_period_us==16667 && edges.stats().max_period_us==16668);
+  edges.edge(true,true,1000000);
+  assert(edges.stats().ambiguous==1);
+  edges.edge(true,false,2000000);
+  assert(edges.stats().period_us==16668); // Gap was not called a 1-second panel period.
+  edges.gap();edges.edge(true,false,3000000);
+  assert(edges.stats().gaps==1 && edges.stats().period_us==16668);
+  timing.configure(true);us=0xfffffff0;idle=0;
+  timing.wait([&]{return us;},[&]{return idle>=2;},[&]{us+=10;++idle;});
+  assert(timing.status().enabled && idle==2); // TE wait across clock rollover.
   alignas(std::max_align_t) std::array<std::byte,4096> memory;
   tufty::Arena arena(memory.data(),memory.size());
   std::vector<void *> pointers;
@@ -87,9 +107,11 @@ int main(){
     std::memset(p,n,16);pointers.push_back(p);
   }
   assert(!arena.allocate(16));
+  assert(arena.used_bytes()==64*16 && arena.peak_bytes()==64*16);
   for(unsigned n=0;n<64;++n)assert(static_cast<unsigned char *>(pointers[n])[0]==n+1);
   for(unsigned n=0;n<64;n+=2)arena.release(pointers[n]);
   for(unsigned n=1;n<64;n+=2)arena.release(pointers[n]);
+  assert(arena.used_bytes()==0 && arena.peak_bytes()==64*16);
   assert(arena.allocate(4096)==memory.data());assert(!arena.allocate(1));
   arena.release(memory.data());assert(!arena.allocate(SIZE_MAX));assert(!arena.allocate(0));
   assert(arena.allocate(4096)==memory.data());
