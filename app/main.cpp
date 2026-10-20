@@ -9,6 +9,7 @@
 #include "presentation/frame_clock.hpp"
 #include "presentation/pixels.hpp"
 #include "power.hpp"
+#include "battery.hpp"
 #include "ble.hpp"
 #include "controllers.hpp"
 #include "diagnostics.hpp"
@@ -108,6 +109,7 @@ static void flush_config() {
 int main() {
     display::early_init();
     power::init();
+    battery::init();
     for(uint pin : {uint(BTN_A),uint(BTN_B),uint(BTN_C),uint(BTN_UP),uint(BTN_DOWN),uint(BTN_HOME),uint(BW_RESET_SW)}) {
         gpio_init(pin); gpio_set_dir(pin,GPIO_IN); gpio_pull_up(pin);
     }

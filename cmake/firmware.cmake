@@ -15,7 +15,7 @@ set(fatfs "${CMAKE_CURRENT_SOURCE_DIR}/lib/fatfs/source")
 add_executable(nes
   app/main.cpp presentation/display.cpp platform/tufty2350/panel.cpp platform/tufty2350/core_memory.cpp app/menu.cpp app/storage.cpp app/fat_disk.cpp
   app/rom_store.cpp app/usb.cpp app/descriptors.cpp app/protocol.cpp
-  app/power.cpp platform/tufty2350/power_board.cpp platform/tufty2350/power_reset.cpp
+  app/power.cpp platform/tufty2350/power_board.cpp platform/tufty2350/power_reset.cpp platform/tufty2350/battery.cpp
   app/disk_ui.cpp app/ble.cpp app/ble_gamepad.cpp app/ble_tgp.cpp app/bluetooth_manager.cpp
   app/gamepad.cpp app/input.cpp app/controllers.cpp platform/tufty2350/ble_stack.c platform/tufty2350/radio_wait.c
   "${fatfs}/ff.c" "${fatfs}/ffunicode.c"
@@ -31,7 +31,7 @@ target_compile_definitions(nes PRIVATE TUFTY2350
 target_link_libraries(nes_core PUBLIC pico_base_headers)
 target_link_libraries(nes PRIVATE nes_host pico_stdlib pico_multicore pico_flash pico_unique_id
   hardware_psram hardware_dma hardware_pio hardware_pwm hardware_clocks
-  hardware_flash hardware_powman tinyusb_device
+  hardware_flash hardware_powman hardware_adc tinyusb_device
   tufty_radio_poll pico_btstack_ble pico_btstack_cyw43)
 target_compile_options(nes PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_options(nes PRIVATE "LINKER:-T,${CMAKE_CURRENT_SOURCE_DIR}/cmake/firmware_limit.ld"

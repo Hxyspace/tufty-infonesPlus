@@ -47,7 +47,7 @@ flowchart TD
 | `nes_cartridge` / `core_api`, `adapters/infones` | 格式检查、板型约束、初始化和卸载，无 Pico 依赖 |
 | `nes_host` / `adapters/infones` | 将 InfoNES 回调桥接为 `nes::Host`，管理一次同步运行 |
 | `presentation` | NES 行颜色编码、完整帧发布、显示所有权和逻辑帧节奏 |
-| `platform/tufty2350` | LCD 传输、内存分配、电源硬件和无线 SDK 适配 |
+| `platform/tufty2350` | LCD 传输、内存分配、电源硬件、ADC 电量测量和无线 SDK 适配 |
 | `nes` / `app` | 组合上述模块，构建 `tufty-nes-flash` 设备固件 |
 
 外部库提供 SDK、无线协议栈、文件系统和 JSON，版本由 `deps.lock.json` 固定，准备方式见[构建指南](building.md#依赖管理)。
@@ -119,6 +119,10 @@ LCD 刷新率、TE 同步和游戏逻辑帧率相互独立。帧末等待负责�
 普通模式下，游戏和素材来自只读 FAT，配置位于独立 LittleFS。USB 磁盘模式卸载 FAT，由电脑独占该卷，暂停游戏和手柄连接；安全弹出后设备重启。State 不通过 USB 磁盘暴露，具体路径和格式见[存储与升级](storage.md)。
 
 Flash 写入前请求显示暂停；core1 完成当前传输并排空 PIO 后才确认，再由 SDK flash-safe 机制协调写入。该顺序防止另一核继续访问被擦写的 Flash 或未完成的显示资源。休眠及重启也先停止传输，再关闭相关外设。
+
+### 电量测量
+
+`platform/tufty2350/battery` 是 core0 使用的显式 ADC 能力。初始化只配置电池分压输入（GPIO40）和 1.1V 参考输入（GPIO42）；调用方通过 `refresh(now_ms)` 明确采样，每个通道取 10 次平均，不在游戏帧循环中后台采样。读数以参考通道校正为 `battery_raw / reference_raw × 2.2V`，并提供毫伏、电量百分比、原始 ADC 值和时间戳。百分比沿用 Tufty 官方估算曲线，仅用于界面显示，不代表电量计或关机阈值。读数缓存可供后续菜单/两侧信息使用；当前未把电量采样接入 NES 核心、TE 调度或自动休眠策略。
 
 ## 扩展规则
 
