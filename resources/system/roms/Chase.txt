@@ -1,0 +1,11 @@
+<game>
+    <name>Chase</name>
+    <desc>Collect every gem in a maze while staying ahead of relentless pursuers. Plan your route, slip around corners, and clear each stage without getting caught.</desc>
+    <rating></rating>
+    <releasedate></releasedate>
+    <developer>Shiru</developer>
+    <source>https://github.com/Heathcode/chase</source>
+    <publisher></publisher>
+    <genre>Arcade</genre>
+    <players>1</players>
+</game>

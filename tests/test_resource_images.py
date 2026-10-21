@@ -57,7 +57,10 @@ with tempfile.TemporaryDirectory(prefix="tufty-resource-test-") as directory:
     for file,selected in (("tufty-nes-with-romfs.uf2",{"rom":parts["rom"]}),("tufty-nes-with-filesystem.uf2",parts)):
         data=(output/file).read_bytes()
         images.validate_variant(data,firmware,selected,used)
-        assert len(data)<1024*1024 # Small fixtures must not expand to a full partition dump.
+        # UF2 doubles payload size. Resource collections can legitimately exceed
+        # 1 MiB; require exactly the selected sectors, not a fixed bundle limit.
+        expected_bytes=len(firmware)+sum(len(used[name])*16*512 for name in selected)
+        assert len(data)==expected_bytes
         for name in selected:
             offset,size=images.REGIONS[name]
             assert len(used[name])*4096<size

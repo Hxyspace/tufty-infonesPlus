@@ -172,7 +172,7 @@ HID 模式支持 XTARK 十字节 Report 布局，其他 HID 布局需单独适�
 
 公共加载入口支持 Mapper 0、1、2、3、4、7、48、66、69 的常规板型布局，PRG 最多 512 KiB、CHR 最多 256 KiB。PRG 容量须为二的幂，CHR ROM 除 Mapper 4 允许按 8 KiB 追加银行外也须为二的幂，并满足板型限制。其余 Mapper 实现保留在核心中，不属于公共加载入口的支持范围。
 
-NES 2.0 支持标准 NES、明确的 NTSC/PAL/Dendy 时序、submapper 0 和受限 RAM，不转换成旧头，也不修改原文件。完整尺寸、RAM 和外设限制见 [核心契约](core-contract.md)。未知扩展 Mapper 明确报错，不回退为低八位 Mapper。
+NES 2.0 支持标准 NES、NTSC/PAL/Dendy 时序、submapper 0 和受限 RAM；多区域 ROM 默认使用 NTSC。不转换成旧头，也不修改原文件。完整尺寸、RAM 和外设限制见 [核心契约](core-contract.md)。未知扩展 Mapper 明确报错，不回退为低八位 Mapper。
 
 重命名游戏后，请删除设备上的旧文件并重新生成 `games.idx` 以免重复显示。菜单每次启动从索引第一项开始；当前选择只保存在运行期内。封面下显示游戏位置，多页简介显示页码和上下三角；首末页对应方向变暗。本机 A/C 和手柄左右切游戏，上下翻简介，长按 400 ms 后每 150 ms 重复一次，到边界停住。确认键只响应按下边沿。启动失败时保留卡片并显示简短英文原因，松开后重新按确认键可重试，切换到其他游戏后清除错误。
 
@@ -187,9 +187,11 @@ python3 tools/prepare_roms.py --fix
 python3 tools/prepare_roms.py --fix --trim-padding
 ```
 
-默认只检查。`--fix` 按已知校验值修正头部，修改前将完整原文件备份到 `build/rom-backups/`；用 `--backup-dir` 可更换备份位置。`--trim-padding` 额外清理声明 ROM 数据之外的 ASCII 空白尾部。处理完成后，将游戏手动复制到设备。
+默认只检查。`--fix` 清理明确的 DiskDude! 污染签名，并按已知校验值修正头部，修改前将完整原文件备份到 `build/rom-backups/`；用 `--backup-dir` 可更换备份位置。`--trim-padding` 额外清理声明 ROM 数据之外的 ASCII 空白尾部。处理完成后，将游戏手动复制到设备。
 
-检查项包括格式、文件长度、mapper、大小限制和尾部数据。未知 ROM 不修改头部，截断或不支持的游戏会报错。修正规则位于 `tools/rom_fixes.json`，可用 `--rules` 指定自定义规则。规则只能处理已知文件问题，不能保证所有游戏兼容。
+DiskDude! 检测仅匹配文件头偏移7–15的完整 `DiskDude!` 或已部分清理的 `@iskDude!`，不搜索游戏正文。识别后清零这9字节，保留偏移0–6、trainer和全部游戏数据，再执行CRC修正规则和检查。该污染覆盖的Mapper高位无法仅从签名恢复，无对应CRC规则时按0处理并明确提示；镜像、电池等byte6标志不会凭空推断，必要时需补充已知规则。截断或修复后仍不支持的ROM保持原文件不变。
+
+检查项包括格式、文件长度、mapper、大小限制和尾部数据。除上述明确签名外，未知脏头不自动清理；正常NES 2.0扩展字段保留。修正规则位于 `tools/rom_fixes.json`，可用 `--rules` 指定自定义规则。规则只能处理已知文件问题，不能保证所有游戏兼容。
 
 ## 游戏索引、封面和背景
 

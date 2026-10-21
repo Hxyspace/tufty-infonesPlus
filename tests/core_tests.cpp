@@ -207,6 +207,24 @@ static void cartridge_loading() {
   assert(!infones_adapter::load(rom.data(),rom.size(),&error) && error && ROM==old);
   valid();rom[7]=8;assert(inspect(rom.data(),rom.size(),c) && c.nes2);
   assert(infones_adapter::load(rom.data(),rom.size(),&error));
+  // Resolve legal multi-region headers to the same timing used by the host
+  // frame clock. Loading after PAL/Dendy must not inherit the previous region.
+  for(unsigned timing:{1,2,3,2,0}) {
+    rom[12]=timing;
+    const auto original=rom;
+    const auto expected=timing==2?0:timing;
+    assert(inspect(rom.data(),rom.size(),c) && c.nes2 && c.timing==expected);
+    assert(c.header[12]==timing);
+    assert(infones_adapter::load(rom.data(),rom.size(),&error) && !error);
+    assert(InfoNES_GetRegion()==(expected==1?INFONES_REGION_PAL:
+           expected==3?INFONES_REGION_DENDY:INFONES_REGION_NTSC));
+    assert(NesHeader.byReserve[4]==timing && rom==original);
+  }
+  for(unsigned timing:{4,6,0xfe}) {
+    rom[12]=timing;auto previous=ROM;
+    assert(!infones_adapter::load(rom.data(),rom.size(),&error) && error && ROM==previous);
+  }
+  rom[12]=0;
   rom[8]=1;assert(inspect(rom.data(),rom.size(),c) && c.mapper==256);
   assert(!infones_adapter::load(rom.data(),rom.size(),&error));
   rom[8]=0x10;assert(!infones_adapter::load(rom.data(),rom.size(),&error));

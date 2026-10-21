@@ -64,11 +64,11 @@ Mapper 69 的 `$6000–$7FFF` 窗口支持 ROM、启用 RAM 和禁用 RAM；ROM 
 
 保留原头，不转换成旧格式。支持范围如下：
 
-- 标准 NES，明确的 NTSC / PAL / Dendy 时序，submapper 0。
+- 标准 NES，NTSC / PAL / Dendy 时序，submapper 0；多区域声明默认选择 NTSC，核心与宿主帧时钟使用同一解析结果，保留原文件头。
 - ROM 大小沿用上述限制，不支持扩展银行计数或指数容量编码。
 - PRG RAM 总量不超过 8 KiB，不混合易失与非易失 PRG RAM；电池标志必须与 PRG NVRAM 声明一致。
 - 无 CHR ROM 时，CHR RAM 必须为 8 KiB；不支持 CHR NVRAM 或 CHR ROM / RAM 混合。
-- 不支持多区域自动选择、额外 ROM、特殊控制器及扩展硬件布局。
+- 多区域不提供运行时区域选择；不支持额外 ROM、特殊控制器及扩展硬件布局。
 
 未知扩展 Mapper 明确拒绝，不降级为低八位。VS、PlayChoice、FDS 和 NSF 不在该加载接口的支持范围。
 

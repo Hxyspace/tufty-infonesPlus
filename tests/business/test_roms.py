@@ -38,6 +38,84 @@ class RomTests(unittest.TestCase):
         self.rule["mirroring"] = "four-screen"
         self.assertEqual(review(self.data, self.rules, {2}).fixed[6] & 9, 8)
 
+    def test_diskdude_signatures_preserve_trainer_payload_and_byte6(self):
+        for signature in (b"DiskDude!", b"@iskDude!"):
+            with self.subTest(signature=signature):
+                dirty = bytearray(self.data)
+                dirty[7:16] = signature
+                result = review(bytes(dirty), {}, {3})
+                self.assertFalse(result.error)
+                self.assertEqual(result.fixed[:7], dirty[:7])
+                self.assertEqual(result.fixed[7:16], bytes(9))
+                self.assertEqual(result.fixed[16:], dirty[16:])
+                self.assertTrue(any("FIX: remove DiskDude!" in n for n in result.notes))
+                self.assertTrue(any("mapper high bits" in n for n in result.notes))
+                self.assertEqual(review(result.fixed, {}, {3}).fixed, result.fixed)
+
+    def test_diskdude_cleanup_precedes_checksum_mapper_correction(self):
+        dirty = bytearray(self.data)
+        dirty[7:16] = b"DiskDude!"
+        self.rule["mapper"] = 66
+        result = review(bytes(dirty), self.rules, {66})
+        self.assertFalse(result.error)
+        self.assertEqual(result.fixed[6:8], b"\x26\x40")
+        self.assertEqual(result.fixed[8:16], bytes(8))
+        self.assertEqual(result.fixed[16:], self.data[16:])
+
+    def test_diskdude_detection_is_exact_and_header_only(self):
+        clean = bytearray(self.data)
+        clean[7] = 0
+        clean[128:137] = b"DiskDude!"
+        self.assertEqual(review(bytes(clean), {}, {3}).fixed, clean)
+        for signature in (b"diskdude!", b"DiskDud?", b"\x48iskDude!", b"\x40Ni03330!"):
+            with self.subTest(signature=signature):
+                dirty = bytearray(self.data)
+                dirty[7:16] = signature
+                result = review(bytes(dirty), {}, {3, 67})
+                self.assertEqual(result.fixed, dirty)
+                self.assertFalse(any("FIX: remove DiskDude!" in n for n in result.notes))
+
+    def test_diskdude_errors_leave_original_unchanged(self):
+        dirty = bytearray(self.data)
+        dirty[7:16] = b"DiskDude!"
+        for invalid, mappers in ((bytes(dirty[:-1]), {3}), (bytes(dirty), {0})):
+            with self.subTest(size=len(invalid), mappers=mappers):
+                result = review(invalid, {}, mappers)
+                self.assertTrue(result.error)
+                self.assertEqual(result.fixed, invalid)
+
+    def test_diskdude_cli_preview_backup_and_repeat(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            root = Path(tmp)
+            roms = root / "roms"
+            roms.mkdir()
+            path = roms / "dirty.NES"
+            dirty = bytearray(self.data)
+            dirty[7:16] = b"DiskDude!"
+            path.write_bytes(dirty)
+            rules = root / "rules.json"
+            rules.write_text('{"rules": []}')
+            backups = root / "backups"
+            args = [str(roms), "--rules", str(rules), "--backup-dir", str(backups)]
+            self.assertEqual(main(args), 0)
+            self.assertEqual(path.read_bytes(), dirty)
+            self.assertFalse(backups.exists())
+            self.assertEqual(main(args + ["--fix"]), 0)
+            fixed = path.read_bytes()
+            self.assertEqual(fixed[7:16], bytes(9))
+            self.assertEqual(fixed[16:], dirty[16:])
+            saved = list(backups.rglob("*.bak"))
+            self.assertEqual(len(saved), 1)
+            self.assertEqual(saved[0].read_bytes(), dirty)
+            self.assertEqual(main(args + ["--fix"]), 0)
+            self.assertEqual(path.read_bytes(), fixed)
+            self.assertEqual(list(backups.rglob("*.bak")), saved)
+            dirty[6] = 0xF0  # Mapper 15 stays unsupported after cleanup.
+            path.write_bytes(dirty)
+            self.assertEqual(main(args + ["--fix"]), 1)
+            self.assertEqual(path.read_bytes(), dirty)
+            self.assertEqual(list(backups.rglob("*.bak")), saved)
+
     def test_unknown_and_sha_mismatch_never_guess(self):
         self.assertEqual(review(self.data, {}, {67}).fixed, self.data)
         self.rule["sha256"] = "0" * 64
@@ -80,6 +158,16 @@ class RomTests(unittest.TestCase):
         self.assertTrue(review(bytes(data[:-1]), {}, {67}).error)
         self.assertTrue(review(bytes(data), {}, {0}).error)
 
+    def test_nes2_multiregion_preserves_header(self):
+        data = bytearray(self.data)
+        data[7] |= 8
+        data[12] = 2
+        data[15] = 1
+        result = review(bytes(data), {}, {67})
+        self.assertFalse(result.error)
+        self.assertEqual(result.fixed, data)
+        self.assertTrue(any("NTSC timing" in note for note in result.notes))
+
     def test_nes2_rejects_unrepresentable_metadata(self):
         data = bytearray(self.data)
         data[7] |= 8
@@ -87,7 +175,7 @@ class RomTests(unittest.TestCase):
         for index, value in ((8, 0x20), (8, 1), (9, 1), (9, 15), (9, 0xF0),
                              (10, 8), (10, 0x80), (10, 0x77),
                              (11, 7), (11, 8), (11, 0x80), (11, 0x77),
-                             (12, 2), (12, 4), (13, 1), (14, 1), (15, 2), (15, 64)):
+                             (12, 4), (12, 6), (13, 1), (14, 1), (15, 2), (15, 64)):
             with self.subTest(index=index, value=value):
                 invalid = bytearray(data)
                 invalid[index] = value

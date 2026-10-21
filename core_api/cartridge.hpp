@@ -10,7 +10,7 @@ struct Cartridge {
   std::array<std::uint8_t,16> header{};
   std::size_t prg_offset=0, prg_size=0, chr_size=0;
   std::uint16_t mapper=0;
-  std::uint8_t submapper=0, timing=0;
+  std::uint8_t submapper=0, timing=0; // Resolved timing: 0 NTSC, 1 PAL, 3 Dendy.
   bool nes2=false;
 };
 // Allocation-free inspection. Preserves the NES 2.0 header; never truncates

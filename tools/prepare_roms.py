@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect a ROM tree; explicitly apply checksum-matched iNES header repairs."""
+"""Inspect ROMs; repair DiskDude! signatures and checksum-matched iNES headers."""
 import argparse
 from dataclasses import dataclass, field
 import hashlib
@@ -53,6 +53,16 @@ def review(data, rules, mappers, trim_padding=False):
     result = Review(data)
     if len(data) < 16 or data[:4] != b"NES\x1a":
         return Review(data, ["ERROR: missing/truncated iNES header"], True)
+    original = data
+    # DiskDude! overwrote bytes 7..15, including mapper high bits and format.
+    # Some dumpers already cleared byte 7's low nibble: '@iskDude!' remains.
+    diskdude = data[7:16] in (b"DiskDude!", b"@iskDude!")
+    if diskdude:
+        data = data[:7] + bytes(9) + data[16:]
+        result.notes.append("FIX: remove DiskDude! signature from header bytes 7..15")
+        result.notes.append("WARN: overwritten mapper high bits default to zero unless a matching CRC rule restores them; verify gameplay")
+    if data[7] & 0x0C not in (0, 8):
+        return Review(original, result.notes + ["ERROR: unknown NES header format; unchanged"], True)
     nes2 = data[7] & 0x0C == 0x08
     if nes2:
         # Format preflight; firmware additionally validates board RAM/geometry.
@@ -66,24 +76,26 @@ def review(data, rules, mappers, trim_padding=False):
             reason = "extended ROM sizes are unsupported"
         elif ram(data[10]) > 8192 or ram(data[11]) > 8192 or (data[5] and data[11]):
             reason = "RAM layout is unsupported"
-        elif data[12] & 0xfc or data[12] == 2:
-            reason = "unknown or multi-region timing"
+        elif data[12] & 0xfc:
+            reason = "unknown timing"
         elif data[13] or data[14] or data[15] > 1:
             reason = "extra hardware/data is unsupported"
         if reason:
-            return Review(data, [f"ERROR: NES 2.0 {reason}; unchanged"], True)
+            return Review(original, result.notes + [f"ERROR: NES 2.0 {reason}; unchanged"], True)
     if data[7] & 3 or not data[4]:
-        return Review(data, ["ERROR: firmware requires standard NES and nonempty PRG; unchanged"], True)
+        return Review(original, result.notes + ["ERROR: firmware requires standard NES and nonempty PRG; unchanged"], True)
     prg, chr_size = data[4] * 16384, data[5] * 8192
     start = 16 + (512 if data[6] & 4 else 0)
     end = start + prg + chr_size
     if len(data) < end:
-        return Review(data, [f"ERROR: truncated ROM: need {end}, have {len(data)} bytes"], True)
+        return Review(original, result.notes + [f"ERROR: truncated ROM: need {end}, have {len(data)} bytes; unchanged"], True)
     payload = data[start:end]
     crc = f"{zlib.crc32(payload):08x}"
     mapper = (data[6] >> 4) | (data[7] & 0xF0)
     mirror = "four-screen" if data[6] & 8 else "vertical" if data[6] & 1 else "horizontal"
     result.notes.append(f"{'NES 2.0' if nes2 else 'iNES 1.0'} CRC32={crc} mapper={mapper} mirroring={mirror} PRG={prg} CHR={chr_size}")
+    if nes2 and data[12] == 2:
+        result.notes.append("INFO: multi-region ROM runs with NTSC timing; original header preserved")
     fixed = bytearray(data)
     rule = rules.get(crc)
     if rule:
@@ -104,7 +116,7 @@ def review(data, rules, mappers, trim_padding=False):
                 fixed[6] = (fixed[6] & ~9) | MIRRORING[rule["mirroring"]]
                 result.notes.append(f"FIX: mirroring {mirror} -> {rule['mirroring']}")
     else:
-        result.notes.append("No known correction; header left unchanged")
+        result.notes.append("No checksum-matched board correction" if diskdude else "No known correction; header left unchanged")
     if mapper not in mappers:
         result.notes.append(f"ERROR: mapper {mapper} is not admitted by the firmware loader")
         result.error = True
@@ -121,7 +133,7 @@ def review(data, rules, mappers, trim_padding=False):
     if len(fixed) > MAX_ROM:
         result.notes.append("ERROR: ROM exceeds firmware's 4 MiB file limit")
         result.error = True
-    result.fixed = bytes(fixed)
+    result.fixed = original if diskdude and result.error else bytes(fixed)
     result.notes.append("Preflight only: firmware applies additional board geometry/RAM checks")
     return result
 

@@ -31,7 +31,7 @@ bash tools/build.sh
 bash tools/test.sh
 ```
 
-工具要求、完整业务测试和离线构建说明见[构建指南](docs/building.md)。仓库默认资源及默认构建不附带游戏 ROM；自定义镜像资源见 [resources](resources/README.md)。
+工具要求、完整业务测试和离线构建说明见[构建指南](docs/building.md)。完整文件系统镜像附带 Chase、LAN Master、TobuNES、Cargo Shift 四款游戏及菜单资源，刷入后可直接体验；自定义镜像资源见 [resources](resources/README.md)。
 
 可使用 `python3 tools/build_game_index.py` 预览、排序并生成游戏索引；`--yes` 无交互生成，`--output deploy/roms` 创建新的设备包。将包内 ROM、`.565` 封面和 `games.idx` 复制到设备磁盘的 `roms/`，详见[索引与部署](docs/usage.md#游戏索引封面和背景)。
 

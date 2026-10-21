@@ -18,8 +18,9 @@ bool inspect(const std::uint8_t *p,std::size_t size,Cartridge &out,const char **
     if(p[9])return reject("Extended/exponent ROM sizes need a wider core ABI");
     if((p[12]&0xfc) || p[13] || p[14] || p[15]>1)
       return reject("NES 2.0 extra hardware, misc ROM or expansion input is unsupported");
-    if((p[12]&3)==2)return reject("Multi-region ROM requires explicit timing selection");
-    image.timing=p[12]&3;
+    // Multi-region images support NTSC/PAL; choose NTSC consistently for both
+    // the core and the application's frame clock, preserving the original header.
+    image.timing=(p[12]&3)==2?0:p[12]&3;
   }else{
     // Ambiguous old dumper signatures must not silently rewrite the mapper.
     for(unsigned i=12;i<16;++i)if(p[i])return reject("Dirty iNES reserved bytes; repair header first");

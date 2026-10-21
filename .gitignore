@@ -5,8 +5,8 @@ __pycache__/
 *.pyc
 .cache/
 *.[nN][eE][sS]
+# New resources must be added explicitly with git add -f.
+/resources/
 *.bak
 /roms/*
 !/roms/README.md
-/resources/system/roms/*
-!/resources/system/roms/.gitkeep

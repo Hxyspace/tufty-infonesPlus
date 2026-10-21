@@ -58,7 +58,7 @@ bash tools/build.sh
 
 普通固件内容限制在 Flash 前 2 MiB，UF2 另保留 SDK 的 RP2350 E10 兼容块。刷写行为与文件系统要求见[存储与升级](storage.md)。构建脚本不自动刷机。
 
-进入设备 BOOTSEL 模式后，将 UF2 复制到设备的启动磁盘；已经运行本固件时，也可通过 Console 输入 `bootsel`。默认资源不附带游戏 ROM，完整镜像包含可直接挂载的文件系统。
+进入设备 BOOTSEL 模式后，将 UF2 复制到设备的启动磁盘；已经运行本固件时，也可通过 Console 输入 `bootsel`。完整文件系统镜像包含 Chase、LAN Master、TobuNES、Cargo Shift 及其菜单资源，文件系统可直接挂载；另外两种镜像保留设备已有的游戏目录。
 
 ## 主机测试
 

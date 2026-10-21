@@ -1,0 +1,11 @@
+<game>
+    <name>LAN Master</name>
+    <desc>Rotate cables and computers to connect the entire network before time runs out. Solve 50 increasingly tricky layouts with branching wires and networks that begin to break down.</desc>
+    <rating></rating>
+    <releasedate></releasedate>
+    <developer>Shiru</developer>
+    <source>https://shiru.untergrund.net/</source>
+    <publisher></publisher>
+    <genre>Puzzle</genre>
+    <players>1</players>
+</game>
