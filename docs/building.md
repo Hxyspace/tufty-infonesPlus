@@ -6,10 +6,11 @@
 
 | 用途 | 工具 |
 |---|---|
-| 主机编译与测试 | CMake 3.21+、Ninja、Git、Python 3、支持 C++17 的 GCC 或 Clang |
+| 主机编译与测试 | CMake 3.21+、Ninja、Git、Python 3.10+、支持 C++17 的 GCC 或 Clang |
 | Tufty2350 固件 | 上述工具，以及 `arm-none-eabi-gcc` / `arm-none-eabi-g++` |
 | 完整文件系统测试 | `mkfs.fat`（dosfstools）、`mmd` / `mcopy`（mtools） |
 | PC 手柄发送器 | Python 3、pyserial，见[使用指南](usage.md#pc-手柄) |
+| 游戏索引工具 | Python 3.10+；交互排序需要 curses 终端，`--yes` 无需 curses |
 
 源码使用 C11 / C++17。主机测试默认开启 AddressSanitizer 和 UndefinedBehaviorSanitizer。设备固件使用 Release 配置，主机与设备使用不同构建目录。
 

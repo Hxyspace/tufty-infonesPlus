@@ -46,12 +46,16 @@ add_executable(usb_disk_tests usb_disk_tests.cpp ${runtime}/usb.cpp ${runtime}/p
 target_include_directories(usb_disk_tests BEFORE PRIVATE ${CMAKE_CURRENT_LIST_DIR}/usb_stubs)
 add_test(NAME usb_disk COMMAND usb_disk_tests)
 add_executable(storage_tests storage_tests.cpp ${runtime}/storage.cpp ${runtime}/gamepad.cpp ${runtime}/fat_disk.cpp
-  ${runtime}/rom_store.cpp ${runtime}/menu.cpp
+  ${runtime}/rom_store.cpp ${runtime}/menu.cpp ${runtime}/input.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/battery_stub.cpp
   ${fatfs}/ff.c ${fatfs}/ffunicode.c
   ${root}/lib/littlefs/lfs.c ${root}/lib/littlefs/lfs_util.c
   ${root}/lib/cjson/cJSON.c)
 add_test(NAME storage_4096 COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096)
 add_test(NAME storage_512 COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 512)
+foreach(scenario valid empty max long crc offset boundary flags desc_flag no_nul header strings short truncated oversize duplicate path control)
+  add_test(NAME games_index_${scenario} COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/game_index_fixture.py $<TARGET_FILE:storage_tests> index_${scenario})
+endforeach()
 add_test(NAME state_blank COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 blank)
 add_test(NAME state_corrupt_record COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 corrupt)
 add_test(NAME state_idle_disabled COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 idle_off)

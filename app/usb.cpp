@@ -1,6 +1,7 @@
 #include "usb.hpp"
 #include "diagnostics.hpp"
 #include "storage.hpp"
+#include "menu.hpp"
 #include "fat_disk.hpp"
 #include "display.hpp"
 #include "console.hpp"
@@ -140,7 +141,7 @@ static void command(const char *s) {
     }
     if(power::command(s) || controllers::command(s) || ble::command(s)) return;
     if(!std::strcmp(s,"help")) {
-        std::printf("help | status | nes stats | lcd te [on|off] | usb disk | bootsel | rescan | save | brightness 1..100 | padid 1..65535 | swapab 0/1\n"
+        std::printf("help | status | nes stats | menu stats | lcd te [on|off] | usb disk | bootsel | rescan | save | brightness 1..100 | padid 1..65535 | swapab 0/1\n"
                     "power status | power sleep [seconds] | power idle 0..86400\n"
                     "pad status | serial on|off | ble status | ble on|off | ble scan\n"
                     "ble discover [stop] | ble devices | ble connect MAC public|random\n"
@@ -150,6 +151,17 @@ static void command(const char *s) {
         std::printf("FAT=%u sector=%u State=%u ROMs=%u pad=%u packets=%lu rejected=%lu dirty=%u\n",
             storage::mounted(),flashfat::disk.sector_size,storage::state_ready(),unsigned(storage::count),pad.active,
             static_cast<unsigned long>(pad.received),static_cast<unsigned long>(pad.rejected),dirty);
+    } else if(!std::strcmp(s,"menu stats")) {
+        const auto t=menu::timing;
+        std::printf("MENU frames=%lu prepare_us=%lu max_prepare_us=%lu draw_us=%lu max_draw_us=%lu frame_us=%lu max_frame_us=%lu\n",
+            (unsigned long)t.frames,(unsigned long)t.prepare_us,(unsigned long)t.prepare_max_us,
+            (unsigned long)t.draw_us,(unsigned long)t.draw_max_us,
+            (unsigned long)t.frame_us,(unsigned long)t.frame_max_us);
+        std::printf("MENU covers: hits=%lu misses=%lu prefetches=%lu prefetch_us=%lu max_prefetch_us=%lu\n",
+            (unsigned long)t.cover_hits,(unsigned long)t.cover_misses,(unsigned long)t.prefetches,
+            (unsigned long)t.prefetch_us,(unsigned long)t.prefetch_max_us);
+        std::printf("MENU current_cover_us=%lu max_current_cover_us=%lu\n",
+            (unsigned long)t.cover_load_us,(unsigned long)t.cover_load_max_us);
     } else if(!std::strcmp(s,"nes stats")) {
         const auto d=display::stats();
         const auto rate=diagnostics::rate.sample();

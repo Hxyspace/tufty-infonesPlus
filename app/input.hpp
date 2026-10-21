@@ -4,9 +4,9 @@
 // Platform-independent input arbitration. All calls run on core0.
 namespace input {
 enum class Source : uint8_t { None,Serial,Ble };
-enum MenuKey : uint8_t { Previous=1,Next=2,Confirm=4,Back=8 };
+enum MenuKey : uint8_t { Previous=1,Next=2,Confirm=4,Back=8,PagePrevious=16,PageNext=32 };
 enum LocalKey : uint8_t { LocalA=1,LocalB=2,LocalC=4,LocalUp=8,LocalDown=16,LocalHome=32 };
-struct Snapshot {uint8_t held=0,pressed=0,released=0;};
+struct Snapshot {uint8_t held=0,pressed=0,released=0; uint32_t epoch=0;};
 struct SourceStatus {
     bool enabled=true,available=false,active=false,armed=false;
     gamepad::ControllerState controller;

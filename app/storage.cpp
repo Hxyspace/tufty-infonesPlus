@@ -20,10 +20,19 @@ Config config;
 char error[96]{};
 static Entry __uninitialized_psram("rom_entries") table[kMaxRoms];
 static uint8_t __uninitialized_psram("rom_data") rom_data[kMaxRomBytes];
+static uint8_t __uninitialized_psram("games_index") index_data[256*1024];
 Entry *entries=table;
 size_t count=0;
+static bool index_mode=false;
+static uint32_t index_strings=0, index_file_bytes=0, storage_generation=0;
 static FATFS fat;
 static bool fat_mounted=false, state_mounted=false, writable_config=true;
+// Core0 only. Nested service callbacks cannot hand FAT to USB while a file/directory is open.
+static unsigned system_readers=0;
+struct SystemReader {
+    SystemReader() {++system_readers;}
+    ~SystemReader() {--system_readers;}
+};
 static tufty::storage::RomStore rom;
 static lfs_t lfs;
 static lfs_config lc{};
@@ -81,7 +90,6 @@ static void load_config() {
     auto *id=cJSON_GetObjectItemCaseSensitive(root,"controller_id");
     auto *level=cJSON_GetObjectItemCaseSensitive(root,"brightness");
     auto *swap=cJSON_GetObjectItemCaseSensitive(root,"swap_ab");
-    auto *last=cJSON_GetObjectItemCaseSensitive(root,"last_rom");
     auto *idle=cJSON_GetObjectItemCaseSensitive(root,"menu_sleep_seconds");
     auto *ble=cJSON_GetObjectItemCaseSensitive(root,"ble_enabled");
     auto *serial=cJSON_GetObjectItemCaseSensitive(root,"serial_enabled");
@@ -92,7 +100,7 @@ static void load_config() {
     uint16_t scan_uuid=config.ble_scan_uuid;
     if((id && (!cJSON_IsNumber(id) || id->valuedouble!=id->valueint || id->valueint<1 || id->valueint>65535)) ||
        (level && (!cJSON_IsNumber(level) || level->valuedouble!=level->valueint || level->valueint<1 || level->valueint>100)) ||
-       (swap && !cJSON_IsBool(swap)) || (last && (!cJSON_IsString(last) || std::strlen(last->valuestring)>255)) ||
+       (swap && !cJSON_IsBool(swap)) ||
        (idle && (!cJSON_IsNumber(idle) || idle->valuedouble!=idle->valueint || idle->valueint<0 || idle->valueint>86400)) ||
        (serial && !cJSON_IsBool(serial)) ||
        (ble && !cJSON_IsBool(ble)) || (random && !cJSON_IsBool(random)) ||
@@ -136,7 +144,6 @@ static void load_config() {
     if(id) config.controller=id->valueint;
     if(level) config.brightness=level->valueint;
     if(swap) config.swap_ab=cJSON_IsTrue(swap);
-    if(last) std::snprintf(config.last_rom,sizeof(config.last_rom),"%s",last->valuestring);
     if(idle) config.menu_sleep_seconds=idle->valueint;
     if(ble) config.ble_enabled=cJSON_IsTrue(ble);
     if(serial) config.serial_enabled=cJSON_IsTrue(serial);
@@ -164,6 +171,93 @@ void init(bool use_state) {
 }
 bool mounted() {return fat_mounted;}
 bool state_ready() {return state_mounted && writable_config;}
+bool indexed() {return index_mode;}
+uint32_t generation() {return storage_generation;}
+
+static uint16_t index_u16(size_t at) {
+    return uint16_t(index_data[at]) | uint16_t(index_data[at+1])<<8;
+}
+static uint32_t index_u32(size_t at) {
+    return uint32_t(index_data[at]) | uint32_t(index_data[at+1])<<8 |
+        uint32_t(index_data[at+2])<<16 | uint32_t(index_data[at+3])<<24;
+}
+static bool ascii_printable(const char *s,bool multiline) {
+    for(;*s;++s) {
+        const unsigned c=static_cast<unsigned char>(*s);
+        if(c<32 || c>=127) {
+            if(!(multiline && c=='\n')) return false;
+        }
+    }
+    return true;
+}
+static bool valid_rom_leaf(const char *name) {
+    const size_t n=std::strlen(name);
+    if(!n || n>255 || !ascii_printable(name,false) || n<4 ||
+       strcasecmp(name+n-4,".nes") || std::strstr(name,"..")) return false;
+    for(const char *p=name;*p;++p)
+        if(std::strchr("/\\:\"<>|?*",*p)) return false;
+    return true;
+}
+static const char *index_string(uint32_t offset,bool multiline,bool required) {
+    if(index_strings>=index_file_bytes || offset>=index_file_bytes-index_strings ||
+       (offset && index_data[index_strings+offset-1]!=0)) return nullptr;
+    const char *s=reinterpret_cast<const char *>(index_data+index_strings+offset);
+    const size_t remaining=index_file_bytes-index_strings-offset;
+    if(required && !*s) return nullptr;
+    for(size_t i=0;i<remaining;++i) {
+        if(!s[i]) return s;
+        if(i%4096==0) tufty_service();
+        const unsigned c=static_cast<unsigned char>(s[i]);
+        if((c<32 || c>=127) && !(multiline && c=='\n')) return nullptr;
+    }
+    return nullptr;
+}
+static uint32_t index_crc(size_t bytes) {
+    uint32_t crc=0xffffffffu;
+    for(size_t i=0;i<bytes;++i) {
+        if(i%4096==0) tufty_service();
+        const uint8_t value=(i>=20 && i<24)?0:index_data[i];
+        crc^=value;
+        for(unsigned bit=0;bit<8;++bit) crc=(crc>>1)^((crc&1)?0xedb88320u:0);
+    }
+    return crc^0xffffffffu;
+}
+static bool load_index() {
+    index_mode=false; index_strings=0; index_file_bytes=0;
+    size_t bytes=0;
+    if(!read_file("/system/roms/games.idx",index_data,256*1024,bytes) || bytes<32 || bytes>256*1024) return false;
+    if(std::memcmp(index_data,"GIDX",4) || index_u16(4)!=1 || index_u16(6)!=32 ||
+       index_u16(10)!=16 || index_data[30]!=1 || index_u32(24)!=0 ||
+       index_data[28]!=58 || index_data[29]!=80 || index_data[31]!=0) return false;
+    const unsigned games=index_u16(8);
+    const size_t records=32+size_t(games)*16, strings=index_u32(12), file_size=index_u32(16);
+    if(games>kMaxRoms || strings!=records || file_size!=bytes || strings>=bytes || index_data[strings]!=0 ||
+       index_crc(bytes)!=index_u32(20)) return false;
+    index_strings=static_cast<uint32_t>(strings); index_file_bytes=static_cast<uint32_t>(bytes);
+    for(unsigned i=0;i<games;++i) {
+        const size_t at=32+size_t(i)*16;
+        const uint32_t name_offset=index_u32(at), title_offset=index_u32(at+4), desc_offset=index_u32(at+8), flags=index_u32(at+12);
+        const char *name=index_string(name_offset,false,true), *title_text=index_string(title_offset,false,true);
+        const char *desc=index_string(desc_offset,true,false);
+        if(!name || !title_text || !desc || !valid_rom_leaf(name) ||
+           (flags&~3u) || bool(flags&2u)!=bool(*desc) || (!*desc && desc_offset!=0)) return false;
+        for(unsigned prior=0;prior<i;++prior) if(!strcasecmp(table[prior].name,name)) return false;
+        std::snprintf(table[i].name,sizeof(table[i].name),"%s",name);
+        table[i].bytes=0; table[i].title_offset=title_offset; table[i].description_offset=desc_offset; table[i].flags=flags;
+    }
+    count=games; index_mode=true; return true;
+}
+const char *title(size_t index) {
+    if(index>=count || !index_mode) return nullptr;
+    return reinterpret_cast<const char *>(index_data+index_strings+table[index].title_offset);
+}
+const char *description(size_t index) {
+    if(index>=count || !index_mode) return nullptr;
+    return reinterpret_cast<const char *>(index_data+index_strings+table[index].description_offset);
+}
+bool has_cover(size_t index) {
+    return index<count && (index_mode ? (table[index].flags&1u)!=0 : true);
+}
 bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {
     actual=0;
     if(!path || !out || std::strstr(path,"..") || std::strchr(path,':') || std::strchr(path,'\\')) return false;
@@ -174,6 +268,7 @@ bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {
     }
     if(!std::strncmp(path,"/system/",8)) {
         if(!fat_mounted) return false;
+        SystemReader reader;
         FIL f{}; if(f_open(&f,path+7,FA_READ)!=FR_OK) return false;
         bool ok=f_size(&f)<=capacity;
         while(ok && actual<f_size(&f)) {
@@ -193,10 +288,14 @@ bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {
     }
     return false;
 }
-void scan() {
+void scan(bool directory_only) {
     count=0;
+    ++storage_generation;
+    index_mode=false; index_strings=0; index_file_bytes=0;
     if(!fat_mounted) return;
     error[0]=0;
+    if(!directory_only && load_index()) return;
+    SystemReader reader;
     DIR dir{};
     FRESULT rc=f_opendir(&dir,"/roms");
     if(rc!=FR_OK) {std::snprintf(error,sizeof(error),"Copy .nes files to /system/roms"); return;}
@@ -206,7 +305,8 @@ void scan() {
         if(!(info.fattrib&AM_DIR) && n>4 && n<256 && !strcasecmp(info.fname+n-4,".nes")) {
             if(count==kMaxRoms) {std::printf("ROM list limit: 128 games\n"); break;}
             std::memcpy(table[count].name,info.fname,n+1);
-            table[count++].bytes=info.fsize;
+            table[count].bytes=info.fsize; table[count].title_offset=0;
+            table[count].description_offset=0; table[count].flags=0; ++count;
         }
         tufty_service();
     }
@@ -217,13 +317,27 @@ void scan() {
 }
 bool load(size_t index,const uint8_t *&data,size_t &bytes) {
     data=nullptr; bytes=0;
-    if(index>=count || table[index].bytes<16 || table[index].bytes>kMaxRomBytes) {
+    if(index>=count) {
         std::snprintf(error,sizeof(error),"ROM must be 16 bytes to 4 MiB"); return false;
     }
     char path[272]; std::snprintf(path,sizeof(path),"/system/roms/%s",table[index].name);
-    if(!read_file(path,rom_data,sizeof(rom_data),bytes)) {
-        std::snprintf(error,sizeof(error),"ROM read failed"); return false;
+    FILINFO info{};
+    const auto stat=f_stat(path+7,&info);
+    if(stat!=FR_OK) {
+        std::snprintf(error,sizeof(error),"%s",
+            stat==FR_NO_FILE || stat==FR_NO_PATH?"ROM missing":"Read failed");
+        return false;
     }
+    if(info.fsize<16 || info.fsize>kMaxRomBytes) {
+        std::snprintf(error,sizeof(error),"Invalid ROM size"); return false;
+    }
+    if(!read_file(path,rom_data,sizeof(rom_data),bytes)) {
+        std::snprintf(error,sizeof(error),"Read failed"); return false;
+    }
+    if(bytes<16 || bytes>kMaxRomBytes) {
+        std::snprintf(error,sizeof(error),"ROM must be 16 bytes to 4 MiB"); return false;
+    }
+    table[index].bytes=static_cast<uint32_t>(bytes);
     data=rom_data; return true;
 }
 bool save() {
@@ -238,8 +352,7 @@ bool save() {
         cJSON_AddBoolToObject(root,"ble_enabled",config.ble_enabled) &&
         cJSON_AddStringToObject(root,"ble_mode",config.ble.mode==bluetooth::Mode::WhitelistOnly?"whitelist":"auto") &&
         cJSON_AddNumberToObject(root,"ble_preferred",config.ble.preferred==255?-1:config.ble.preferred) &&
-        cJSON_AddStringToObject(root,"ble_scan_uuid",uuid) &&
-        cJSON_AddStringToObject(root,"last_rom",config.last_rom);
+        cJSON_AddStringToObject(root,"ble_scan_uuid",uuid);
     auto *list=cJSON_AddArrayToObject(root,"ble_whitelist");
     ok=ok && list;
     for(unsigned i=0;ok && i<config.ble.count;++i) {
@@ -269,6 +382,7 @@ bool save() {
     display::pause(false); cJSON_free(json); return ok;
 }
 bool unmount_system() {
+    if(system_readers) return false;
     if(fat_mounted && f_mount(nullptr,"0:",0)!=FR_OK) return false;
     fat_mounted=false; flashfat::disk.runtime_owned=false; return true;
 }

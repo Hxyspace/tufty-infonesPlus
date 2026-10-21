@@ -5,8 +5,8 @@
 ## 功能
 
 - CPU、PPU、APU 与卡带 Mapper 模拟，支持 NTSC、PAL、Dendy 时序。
-- 双核显示：模拟与应用运行在 core0，LCD 传输运行在 core1，使用 PSRAM 帧缓冲和 PIO/DMA 输出。
-- 游戏列表、封面与自定义背景，通过 USB 磁盘管理游戏和素材。
+- 双核显示：模拟与应用运行在 core0，LCD 传输运行在 core1；游戏帧使用 SRAM，菜单帧使用 PSRAM，通过 PIO/DMA 输出。
+- 带顺序、英文标题和分页简介的游戏索引，58×80 封面与自定义背景，通过 USB 磁盘管理游戏和素材。
 - 本机按键、XTARK / 安卓 HID 手柄、USB 串口 TGP v3，以及串口和 BLE TGP v1/v2。
 - Console 配置、BLE 设备发现与白名单、亮度调节、自动休眠与按键唤醒。
 
@@ -33,11 +33,14 @@ bash tools/test.sh
 
 工具要求、完整业务测试和离线构建说明见[构建指南](docs/building.md)。仓库与固件包不附带游戏 ROM。
 
+可使用 `python3 tools/build_game_index.py` 预览、排序并生成游戏索引；`--yes` 无交互生成，`--output deploy/roms` 创建新的设备包。将包内 ROM、`.565` 封面和 `games.idx` 复制到设备磁盘的 `roms/`，详见[索引与部署](docs/usage.md#游戏索引封面和背景)。
+
 ## 操作
 
 | 操作 | Tufty 本机按键 | PC 发送器 |
 |---|---|---|
-| 菜单上一项 / 下一项 | A 或 Up / C 或 Down | 方向键或 WASD |
+| 菜单上一项 / 下一项 | A / C | 左 / 右 |
+| 菜单简介上一页 / 下一页 | Up / Down | 上 / 下 |
 | 启动游戏 | B | Z 或 Space |
 | NES A / B | B / 由手柄提供 | Z 或 Space / X |
 | Start / Select | 由手柄提供 | Enter / 右 Shift |

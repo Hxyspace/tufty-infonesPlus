@@ -5,8 +5,10 @@ Hub hub;
 namespace {
 int index(Source s) {return s==Source::Serial?0:s==Source::Ble?1:-1;}
 uint8_t menu_map(uint8_t nes) {
-    return ((nes&(gamepad::Left|gamepad::Up))?Previous:0)|
-        ((nes&(gamepad::Right|gamepad::Down))?Next:0)|
+    return ((nes&gamepad::Left)?Previous:0)|
+        ((nes&gamepad::Right)?Next:0)|
+        ((nes&gamepad::Up)?PagePrevious:0)|
+        ((nes&gamepad::Down)?PageNext:0)|
         ((nes&gamepad::A)?Confirm:0)|((nes&gamepad::B)?Back:0);
 }
 }
@@ -35,7 +37,7 @@ void Hub::update() {
     int current=index(active);
     if(current>=0 && !available(current)) {
         ports[current].receiver->select(false); ports[current].armed=false;
-        active=Source::None; current=-1;
+        active=Source::None; current=-1; ++menu.epoch;
         // Discard accumulated remote edges at a handover, keeping held local keys.
         menu.pressed=local_pressed; menu.released=local_released;
     }
@@ -44,7 +46,7 @@ void Hub::update() {
         if(available(0)) chosen=0;
         if(available(1) && (chosen<0 || int32_t(ports[1].receiver->at-ports[0].receiver->at)>=0)) chosen=1;
         if(chosen>=0) {
-            active=chosen==0?Source::Serial:Source::Ble;
+            active=chosen==0?Source::Serial:Source::Ble; ++menu.epoch;
             ports[chosen].armed=false; ports[chosen].receiver->select(false);
             current=chosen;
         }
@@ -53,12 +55,14 @@ void Hub::update() {
         ports[current].armed=true; ports[current].receiver->select(true);
     }
     uint8_t keys=menu_map(remote_keys());
-    if(local_keys&(LocalA|LocalUp)) keys|=Previous;
-    if(local_keys&(LocalC|LocalDown)) keys|=Next;
+    if(local_keys&LocalA) keys|=Previous;
+    if(local_keys&LocalC) keys|=Next;
+    if(local_keys&LocalUp) keys|=PagePrevious;
+    if(local_keys&LocalDown) keys|=PageNext;
     if(local_keys&LocalB) keys|=Confirm;
     uint8_t prior=menu.held;
     menu.held=keys;
-    if(home()) {barrier=true; menu.pressed=menu.released=local_pressed=local_released=0;}
+    if(home()) {if(!barrier) ++menu.epoch; barrier=true; menu.pressed=menu.released=local_pressed=local_released=0;}
     if(barrier) {
         if(!keys && !home()) barrier=false;
         return;
@@ -90,7 +94,7 @@ uint8_t Hub::nes(bool swap_ab) const {
     return swap_ab?uint8_t((keys&~3)|((keys&1)<<1)|((keys&2)>>1)):keys;
 }
 Snapshot Hub::take_menu() {
-    Snapshot result=menu; menu.pressed=menu.released=local_pressed=local_released=0; return result;
+    Snapshot result=menu; if(barrier) result.held=result.pressed=result.released=0; menu.pressed=menu.released=local_pressed=local_released=0; return result;
 }
-void Hub::clear_events() {menu.pressed=menu.released=local_pressed=local_released=0; barrier=true; update();}
+void Hub::clear_events() {++menu.epoch; menu.pressed=menu.released=local_pressed=local_released=0; barrier=true; update();}
 }

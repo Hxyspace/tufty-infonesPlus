@@ -1,4 +1,5 @@
 #include "input.hpp"
+#include "menu_repeat.hpp"
 #include "bluetooth_config.hpp"
 #include <cassert>
 #include <cstring>
@@ -9,6 +10,61 @@ static void send(Receiver &receiver,uint16_t keys=0,uint8_t hat=255,uint32_t now
     assert(receiver.receive(report,10,now));
 }
 int main() {
+    // Menu paging is independent of game selection; NES inputs remain intact.
+    input::Hub navigation;
+    const uint8_t mappings[][2]={{input::LocalA,input::Previous},{input::LocalC,input::Next},
+        {input::LocalUp,input::PagePrevious},{input::LocalDown,input::PageNext}};
+    for(const auto &pair:mappings) {
+        navigation.local(pair[0]);
+        assert(navigation.take_menu().pressed==pair[1]);
+        navigation.local(0); navigation.take_menu();
+    }
+    Receiver remote;
+    navigation.attach(Source::Ble,remote); send(remote);
+    for(uint8_t hat=0;hat<8;hat+=2) {
+        send(remote,0,hat);
+        const uint8_t events[]={input::PagePrevious,input::Next,input::PageNext,input::Previous};
+        assert(navigation.take_menu().pressed==events[hat/2]);
+        assert(navigation.nes()==(hat==0?Up:hat==2?Right:hat==4?Down:Left));
+        send(remote); navigation.take_menu();
+    }
+    menu::Repeat repeat;
+    input::Snapshot held{input::Next,input::Next,0};
+    assert(repeat.poll(held,100)==input::Next);
+    held.pressed=0;
+    assert(!repeat.poll(held,499));
+    assert(repeat.poll(held,500)==input::Next);
+    assert(!repeat.poll(held,649));
+    assert(repeat.poll(held,650)==input::Next);
+    assert(repeat.poll(held,5000)==input::Next); // No backlog replay.
+    assert(!repeat.poll(held,5000));
+    ++held.epoch; assert(!repeat.poll(held,5100));
+    assert(!repeat.poll(held,5499)); assert(repeat.poll(held,5500)==input::Next);
+    held={}; assert(!repeat.poll(held,5600));
+    held={input::Confirm,input::Confirm,0}; assert(repeat.poll(held,6000)==input::Confirm);
+    held.pressed=0; assert(!repeat.poll(held,9000));
+    repeat.reset(); held={input::PageNext,input::PageNext,0};
+    assert(repeat.poll(held,0xffffff00u)==input::PageNext);
+    held.pressed=0; assert(!repeat.poll(held,143)); assert(repeat.poll(held,144)==input::PageNext);
+    const uint8_t axes[]={input::Previous|input::Next,input::PagePrevious|input::PageNext};
+    for(const auto axis : axes) {
+        repeat.reset(); held={axis,axis,0};
+        assert(!repeat.poll(held,0));
+        held.pressed=0; assert(!repeat.poll(held,1000));
+        const uint8_t single=axis&uint8_t(-axis);
+        held={single,single,0}; // Even a backend reissued edge must restart the delay.
+        assert(!repeat.poll(held,1001));
+        held.pressed=0; assert(!repeat.poll(held,1400));
+        assert(repeat.poll(held,1401)==single);
+        held={axis,axis,0}; assert(!repeat.poll(held,1551));
+    }
+    assert(menu::launch_requested(input::Confirm));
+    assert(!menu::launch_requested(input::Confirm|input::Next));
+    assert(!menu::launch_requested(input::Confirm|input::Previous));
+    // A held direction behind the input barrier cannot trigger menu repeat.
+    navigation.local(input::LocalC); navigation.clear_events();
+    assert(!navigation.take_menu().held); navigation.local(0);
+
     ControllerState state;
     assert(state.neutral() && state.left_x==128 && state.right_y==128);
     uint8_t raw[]={1,2,3,4,3,0xdb,0x7f,65,129,0};

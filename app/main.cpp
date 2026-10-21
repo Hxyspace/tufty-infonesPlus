@@ -4,6 +4,7 @@
 #include "storage.hpp"
 #include "usb.hpp"
 #include "menu.hpp"
+#include "menu_repeat.hpp"
 #include "core_api/host.hpp"
 #include "core_api/cartridge.hpp"
 #include "presentation/frame_clock.hpp"
@@ -84,7 +85,8 @@ static void game_message(const char *text){std::printf("NES: %s\n",text);}
 static void run_game() {
     nes::Cartridge image;const char *error=nullptr;
     if(!nes::inspect(rom_data,rom_bytes,image,&error)) {
-        std::snprintf(storage::error,sizeof storage::error,"%s",error);return;
+        std::printf("NES: %s\n",error?error:"Unsupported ROM");
+        std::snprintf(storage::error,sizeof storage::error,"Unsupported ROM");return;
     }
     const auto now=time_us_32();
     if(image.timing==1)frame_clock.reset(now,1662607,341*312*5,16);
@@ -93,8 +95,11 @@ static void run_game() {
     const nes::Host host{tufty_service,game_input,game_line,game_frame,game_message};
     SCREEN=&display::game_buffer();display::begin_game();
     diagnostics::reset();diagnostics::playing=true;
-    if(!nes::infones_adapter::run(host,rom_data,rom_bytes,&error))
-        std::snprintf(storage::error,sizeof storage::error,"%s",error?error:"Core failed");
+    if(!nes::infones_adapter::run(host,rom_data,rom_bytes,&error)) {
+        std::printf("NES: %s\n",error?error:"Core failed");
+        std::snprintf(storage::error,sizeof storage::error,"%s",
+            error && std::strstr(error,"alloc")?"Out of memory":"Core failed");
+    }
     display::end_game();
     diagnostics::playing=false;
     diagnostics::working=false;
@@ -131,14 +136,17 @@ int main() {
     ble_ready=true;
     storage::scan(); menu::load_art();
     int selected=0;
-    for(size_t i=0;i<storage::count;++i) if(!std::strcmp(storage::entries[i].name,storage::config.last_rom)) selected=i;
+    menu::Repeat repeat;
     float position=selected;
     unsigned back=1;
     uint32_t opened=to_ms_since_boot(get_absolute_time());
     sample_local(); input::hub.clear_events();
     power::menu(true);
+    menu::enter(opened);
+    menu::select(selected);
     while(true) {
         tufty_service();
+        menu::service(to_ms_since_boot(get_absolute_time()));
         if(usb::disk_requested) {
             flush_config();
             if(usb::dirty) {usb::disk_requested=false; std::printf("Disk entry blocked: unsaved State\n");}
@@ -147,36 +155,65 @@ int main() {
         if(power::pending()) power::process();
         if(usb::save_requested) flush_config();
         if(usb::rescan_requested) {
-            usb::rescan_requested=false; storage::scan(); menu::cover(-1);
-            selected=storage::count?std::min<int>(selected,storage::count-1):0; position=selected;
+            char previous_name[256]{};
+            if(selected>=0 && static_cast<size_t>(selected)<storage::count)
+                std::snprintf(previous_name,sizeof(previous_name),"%s",storage::entries[selected].name);
+            usb::rescan_requested=false; storage::scan(true); menu::select(-1);
+            selected=0;
+            for(size_t i=0;i<storage::count;++i)
+                if(!std::strcmp(previous_name,storage::entries[i].name)) {selected=static_cast<int>(i);break;}
+            position=selected; menu::reset_page();
+            menu::select(selected);
         }
         auto keys=input::hub.take_menu();
         power::idle(keys.held || keys.pressed || input::hub.home());
         if(power::pending()) {power::process(); continue;}
-        uint8_t pressed=keys.pressed;
+        uint8_t pressed=repeat.poll(keys,to_ms_since_boot(get_absolute_time()));
+        const int old_selected=selected;
         if(pressed&input::Previous) selected=std::max(0,selected-1);
         if(pressed&input::Next) selected=std::min<int>(std::max<int>(0,storage::count-1),selected+1);
-        if(storage::count && (pressed&(input::Previous|input::Next))) storage::error[0]=0;
-        if(pressed&input::Confirm && storage::count) {
+        if(selected!=old_selected) storage::error[0]=0;
+        if(!(pressed&(input::Previous|input::Next))) {
+            if(pressed&input::PagePrevious) menu::previous_page();
+            if(pressed&input::PageNext) menu::next_page();
+        }
+        if(menu::launch_requested(pressed) && storage::count) {
+            repeat.reset();
             input::hub.clear_events();
             power::menu(false);
             storage::error[0]=0;
             if(storage::load(selected,rom_data,rom_bytes)) {
-                if(std::strcmp(storage::config.last_rom,storage::entries[selected].name)) {
-                    std::snprintf(storage::config.last_rom,sizeof(storage::config.last_rom),"%s",storage::entries[selected].name);
-                    usb::dirty=storage::state_ready(); flush_config();
-                }
                 run_game();
             }
             input::hub.clear_events();
             power::menu(true);
             opened=to_ms_since_boot(get_absolute_time());
+            menu::enter(opened);
         }
-        menu::cover(selected);
+        const auto prepare_started=time_us_32();
+        menu::select(selected);
+        menu::timing.prepare_us=time_us_32()-prepare_started;
+        menu::timing.prepare_max_us=std::max(menu::timing.prepare_max_us,menu::timing.prepare_us);
         position+=(selected-position)*0.3f;
         if(std::fabs(selected-position)<0.005f) position=selected;
         uint32_t now=to_ms_since_boot(get_absolute_time());
+        const auto draw_started=time_us_32();
         menu::draw(display::menu_buffers[back],selected,position,now-opened,storage::error[0]?storage::error:nullptr);
+        menu::timing.draw_us=time_us_32()-draw_started;
+        menu::timing.draw_max_us=std::max(menu::timing.draw_max_us,menu::timing.draw_us);
         display::present_menu(back); back^=1;
+        menu::timing.frame_us=time_us_32()-prepare_started;
+        menu::timing.frame_max_us=std::max(menu::timing.frame_max_us,menu::timing.frame_us);
+        ++menu::timing.frames;
+        const auto prefetch_started=time_us_32();
+        if(!usb::disk_requested && !usb::rescan_requested && !power::pending() &&
+           menu::load_current_cover()) {
+            menu::timing.cover_load_us=time_us_32()-prefetch_started;
+            menu::timing.cover_load_max_us=std::max(menu::timing.cover_load_max_us,menu::timing.cover_load_us);
+        } else if(!usb::disk_requested && !usb::rescan_requested && !power::pending() &&
+                  menu::prefetch(to_ms_since_boot(get_absolute_time()),keys.held || keys.pressed)) {
+            menu::timing.prefetch_us=time_us_32()-prefetch_started;
+            menu::timing.prefetch_max_us=std::max(menu::timing.prefetch_max_us,menu::timing.prefetch_us);
+        }
     }
 }
