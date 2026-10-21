@@ -221,7 +221,7 @@ python3 tools/build_game_index.py --input roms --output deploy/roms --yes
 | `roms/Game.565` | 58 × 80 | 9280 字节 |
 | `assets/nes-background.565` | 320 × 240 | 153600 字节 |
 
-封面应与游戏使用相同文件名主干，如 `01_Game.nes` 和 `01_Game.565`。索引中的封面标志只表示资源存在；设备读取失败时仍显示默认卡带。无自定义背景时依次使用 `/rom/nes-background.565` 或内置背景。
+封面应与游戏使用相同文件名主干，如 `01_Game.nes` 和 `01_Game.565`。索引中的封面标志只表示资源存在；设备读取失败时仍显示默认卡带。背景优先读取 `/system/assets/nes-background.565`，再读取 `/rom/nes-background.565`；两者均不可读时使用黑底。
 
 `menu stats` 的 `prepare_us` 是最近一次菜单选择资源准备耗时，缓存命中时通常很小；`draw_us` 是菜单绘制耗时；`frame_us` 包含这两段及等待显示完成的时间，不含输入处理、翻页、启动游戏、启动时首次资源准备或重扫。`max_*` 为启动以来的最大值，单位微秒。连续切换游戏后可用最大值判断资源加载是否导致卡顿；主机测试耗时不能代替设备测量。
 
@@ -231,4 +231,4 @@ python3 tools/build_game_index.py --input roms --output deploy/roms --yes
 
 封面缓存未命中时先显示新卡片和默认卡带，再读取当前封面，随后才预取左右邻居。读取仍是同步操作，慢读期间动画可能暂停。`menu stats` 的 `current_cover_us` / `max_current_cover_us` 分别记录最近及最大的当前封面加载耗时；与邻居预取一样，这段时间在画面提交后发生，不计入 `frame_us`。
 
-菜单背景覆盖整个 320×240 屏幕，顶部标题、电池与连接图标直接叠加在背景上。背景使用无文件头、逐行 RGB565 little-endian 数据，与封面采用相同编码。更新内置背景可运行 `python tools/update_menu_background.py path/to/background.565`，然后重新编译；该工具只替换背景数组，保留字体数据。
+菜单背景覆盖整个 320×240 屏幕，顶部标题、电池与连接图标直接叠加在背景上。背景使用无文件头、逐行 RGB565 little-endian 数据，与封面采用相同编码。更新随固件分发的背景时，替换 `resources/rom/nes-background.565` 并构建、刷入 `tufty-nes-with-romfs.uf2`。背景不再作为 C++ 数组编入程序。

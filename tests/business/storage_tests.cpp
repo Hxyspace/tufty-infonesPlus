@@ -2,7 +2,6 @@
 #include "fat_disk.hpp"
 #include "core_api/cartridge.hpp"
 #include "menu.hpp"
-#include "menu_assets.hpp"
 #include "input.hpp"
 #include "platform/tufty2350/battery.hpp"
 #include "cJSON.h"
@@ -80,6 +79,41 @@ int main(int argc,char **argv) {
     assert(flash!=MAP_FAILED && reinterpret_cast<uintptr_t>(flash)==kXipBase);
     std::memset(flash,255,16*1024*1024);
     std::ifstream input(argv[1],std::ios::binary); assert(input);
+    if(argc==4 && std::string(argv[3])=="packed") {
+        input.read(reinterpret_cast<char *>(flash),16*1024*1024);
+        assert(input.gcount()==16*1024*1024);
+        storage::init(); assert(storage::mounted() && storage::state_ready());
+        const bool defaults=std::string(argv[2])=="defaults";
+        assert(storage::config.brightness==(defaults?80:63));
+        std::vector<uint8_t> background(320*240*2); size_t bytes=0;
+        assert(storage::read_file("/rom/nes-background.565",background.data(),background.size(),bytes));
+        assert(bytes==background.size());
+        if(!defaults) {
+            char text[32]{};
+            assert(storage::read_file("/system/assets/test.txt",text,sizeof(text),bytes));
+            assert(std::string(text,bytes)=="system image test");
+            assert(storage::read_file("/state/nested/test.txt",text,sizeof(text),bytes));
+            assert(std::string(text,bytes)=="state image test");
+            for(const auto *prefix:{"/system/assets/","/state/"}) {
+                for(const auto *name:{"zeros.bin","erased.bin"}) {
+                    std::vector<uint8_t> content(8192);
+                    const auto path=std::string(prefix)+name;
+                    assert(storage::read_file(path.c_str(),content.data(),content.size(),bytes));
+                    assert(bytes==content.size());
+                    for(auto value:content) assert(value==(name[0]=='z'?0:255));
+                }
+            }
+        } else {
+            char text[32]{};
+            assert(!storage::read_file("/system/assets/test.txt",text,sizeof(text),bytes));
+            assert(!storage::read_file("/state/nested/test.txt",text,sizeof(text),bytes));
+        }
+        menu::load_art(); std::vector<uint16_t> frame(320*240);
+        menu::draw(frame.data(),0,0,300);
+        assert(frame[0]==uint16_t(background[0]|(background[1]<<8)));
+        assert(storage::save()); // Newly formatted state is writable by actual firmware code.
+        munmap(flash,16*1024*1024); return 0;
+    }
     input.read(reinterpret_cast<char *>(flash+kSystem.offset),kSystem.bytes); assert(input.gcount()==kSystem.bytes);
     std::vector<uint8_t> original(flash,flash+16*1024*1024);
     std::string scenario=argc>=4?argv[3]:"";
@@ -180,13 +214,12 @@ int main(int argc,char **argv) {
                 std::vector<uint16_t> first(320*240+32,0x1234), frame(first);
                 const unsigned before=service_calls;
                 menu::draw(first.data(),0,0,300);
-                static_assert(sizeof(art::background)==320*240*2);
-                assert(first[0]==art::background[0]); // Header overlays the full-screen background.
+                assert(first[0]==0); // No resource background: black fallback.
                 assert(service_calls==before); // draw must not perform storage I/O, ADC or layout service.
                 assert(battery::test_refreshes==samples+2);
                 auto rgb=[](unsigned r,unsigned g,unsigned b) {return ((r>>3)<<11)|((g>>2)<<5)|(b>>3);};
                 assert(first[20*320+305]==rgb(100,100,100));
-                assert(first[18*320+274]==art::background[18*320+274]); // Empty battery outline reveals background.
+                assert(first[18*320+274]==0); // Empty battery outline reveals background.
                 battery::test_value.valid=true; battery::test_value.percent=100;
                 menu::draw(frame.data(),0,0,300); assert(frame[18*320+274]==rgb(0,166,106));
                 battery::test_value.valid=false;

@@ -4,7 +4,7 @@ project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 build_dir="${TUFTY_BUILD_DIR:-$project_dir/build/firmware}"
 artifact_dir="${TUFTY_ARTIFACT_DIR:-$project_dir/dist}"
 python_bin="${PYTHON:-$(command -v python3)}"
-for program in git cmake ninja cc c++ arm-none-eabi-gcc arm-none-eabi-g++; do
+for program in git cmake ninja cc c++ arm-none-eabi-gcc arm-none-eabi-g++ mkfs.fat mmd mcopy; do
     command -v "$program" >/dev/null || { echo "Missing $program; see README.md" >&2; exit 1; }
 done
 case "$build_dir" in /*) ;; *) build_dir="$project_dir/$build_dir" ;; esac
@@ -28,5 +28,6 @@ cmake -S "$project_dir" -B "$build_dir" -G Ninja \
     "-DCMAKE_ASM_COMPILER=$(command -v arm-none-eabi-gcc)"
 cmake --build "$build_dir" --parallel "$jobs"
 "$python_bin" -B "$project_dir/tools/check_uf2.py" "$build_dir/tufty-nes-flash.uf2"
+"$python_bin" -B "$project_dir/tools/resource_images.py" "$build_dir/tufty-nes-flash.uf2" "$build_dir/resources"
 "$python_bin" -B "$project_dir/tools/package.py" "$build_dir" "$artifact_dir"
-echo "Built $artifact_dir/tufty-nes-flash.uf2"
+echo "Built firmware / sparse firmware+romfs / sparse firmware+filesystem images in $artifact_dir"

@@ -152,3 +152,5 @@ LCD 的 `frame_us` 包含 TE 等待与传输，`transfer_us` 排除 TE 等待，
 `MEM` 报告 newlib 已分配 heap、已保留空闲块、尚未向分配器申请的链接堆区，以及核心 PSRAM arena 当前/峰值占用。`small_fallbacks` 记录核心小内存分配回退至 PSRAM 的次数，`alloc_failures` 记录最终分配失败；这两个计数也自启动累积。`stack0_sample_min` / `stack1_sample_min` 是服务/渲染采样点观测到的最小 SP 余量，不是全部调用及中断的栈高水位。链接器静态占用同样不能代替运行峰值。
 
 USB 磁盘接管请求出现后停止菜单预取；现有同步文件读取先关闭文件，再由主循环进入磁盘模式。FAT 文件和目录读取期间禁止卸载。当前磁盘模式的进入与退出通过重启切换，返回菜单会重读目录并重建封面、文字缓存，不沿用电脑更新前的资源。
+
+背景属于资源分区：优先读取 /system/assets/nes-background.565，再读取 /rom/nes-background.565，两者不可读时黑底。程序不内嵌背景数组；资源存在时启动读取到静态 PSRAM 背景缓冲，游戏期间不读取或绘制。tools/resource_images.py 构建三种存储组合，布局与 app/layout.hpp 一致，镜像集成测试通过实际存储实现挂载验证。

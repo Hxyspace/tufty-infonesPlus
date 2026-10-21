@@ -242,7 +242,8 @@ static void status_icons(uint16_t *out) {
     circle(out,305,20,4,connection);
 }
 void draw(uint16_t *out,int selected,float position,uint32_t elapsed,const char *message) {
-    std::memcpy(out,have_bg?custom_bg:art::background,320*240*2);
+    if(have_bg) std::memcpy(out,custom_bg,sizeof(custom_bg));
+    else std::fill(out,out+320*240,0);
     text(out,"TUFTY",14,8,0xffff,art::header_glyphs,art::header_pixels);
     box(out,80,9,1,23,rgb(78,78,78));
     text(out,"NES",92,8,rgb(0,193,222),art::header_glyphs,art::header_pixels);

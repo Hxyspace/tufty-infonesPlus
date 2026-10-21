@@ -69,3 +69,5 @@ endforeach()
 add_test(NAME host_sender COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/test_sender.py)
 add_test(NAME rom_preparation COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/test_roms.py)
 target_link_libraries(storage_tests PRIVATE nes_cartridge)
+
+add_test(NAME resource_images COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/../test_resource_images.py $<TARGET_FILE:storage_tests>)

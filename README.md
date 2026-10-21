@@ -14,8 +14,8 @@
 
 ## 开始使用
 
-1. 按[构建指南](docs/building.md)生成 `dist/tufty-nes-flash.uf2`。
-2. 确认设备符合[存储布局](docs/storage.md#flash-布局)，进入 BOOTSEL 模式并复制 UF2。固件包只包含程序，不包含文件系统镜像，也不自动格式化 Flash。
+1. 按[构建指南](docs/building.md)生成三种 UF2：程序更新版、程序＋只读资源版、完整初始化版。
+2. 进入 BOOTSEL 并复制所需 UF2：空白设备使用 `tufty-nes-with-filesystem.uf2` 初始化；已有设备普通更新使用 `tufty-nes-flash.uf2`，同时更新只读背景使用 `tufty-nes-with-romfs.uf2`。**完整初始化版会覆盖原有游戏、素材和配置**，详见[存储布局](docs/storage.md#flash-布局)。
 3. 启动后通过连续双 Reset，或 Console 的 `usb disk` 命令进入磁盘模式，将自己的 `.nes` 文件放入磁盘 `roms/` 目录，安全弹出后返回菜单。
 4. 连接手柄，选择游戏并启动。连接方法、Console 命令和素材格式见[使用指南](docs/usage.md)。
 
@@ -31,7 +31,7 @@ bash tools/build.sh
 bash tools/test.sh
 ```
 
-工具要求、完整业务测试和离线构建说明见[构建指南](docs/building.md)。仓库与固件包不附带游戏 ROM。
+工具要求、完整业务测试和离线构建说明见[构建指南](docs/building.md)。仓库默认资源及默认构建不附带游戏 ROM；自定义镜像资源见 [resources](resources/README.md)。
 
 可使用 `python3 tools/build_game_index.py` 预览、排序并生成游戏索引；`--yes` 无交互生成，`--output deploy/roms` 创建新的设备包。将包内 ROM、`.565` 封面和 `games.idx` 复制到设备磁盘的 `roms/`，详见[索引与部署](docs/usage.md#游戏索引封面和背景)。
 

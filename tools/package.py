@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package firmware, user docs, provenance and licenses; never include ROMs."""
+"""Package firmware variants, resource images, user docs, provenance and licenses."""
 import argparse
 import hashlib
 import json
@@ -30,8 +30,18 @@ def main():
         shutil.copy2(args.build / name, dest / name)
         data = (dest / name).read_bytes()
         info["artifacts"][name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+    resource_info = json.loads((args.build / "resources/resource-images.json").read_text())
+    info["resource_images"] = resource_info
+    for obsolete in ("tufty-nes-rom.uf2", "tufty-nes-full.uf2"):
+        (dest / obsolete).unlink(missing_ok=True)
+    for name in ("tufty-nes-with-romfs.uf2", "tufty-nes-with-filesystem.uf2", "rom.bin", "system.bin", "state.bin", "resource-images.json"):
+        shutil.copy2(args.build / "resources" / name, dest / name)
+        data = (dest / name).read_bytes()
+        info["artifacts"][name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
     for name in ("README.md", "LICENSE", "deps.lock.json"):
         shutil.copy2(PROJECT / name, dest / name)
+    (dest / "resources").mkdir(exist_ok=True)
+    shutil.copy2(PROJECT / "resources/README.md", dest / "resources/README.md")
     docs = dest / "docs"
     docs.mkdir(exist_ok=True)
     for source in sorted((PROJECT / "docs").glob("*.md")):

@@ -8,3 +8,5 @@ __pycache__/
 *.bak
 /roms/*
 !/roms/README.md
+/resources/system/roms/*
+!/resources/system/roms/.gitkeep
