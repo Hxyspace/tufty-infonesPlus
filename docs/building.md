@@ -100,12 +100,36 @@ cmake --build build/core
 |---|---|---|
 | `TUFTY_BUILD_DIR` | `build/firmware` | 设备构建目录 |
 | `TUFTY_ARTIFACT_DIR` | `dist` | 固件打包目录 |
+| `TUFTY_RESOURCES_DIR` | `resources` | 整套资源根目录，必须包含 `rom/`、`system/`、`state/` |
 | `TUFTY_TEST_BUILD_DIR` | `build/host` | 主机测试构建目录 |
 | `CMAKE_BUILD_PARALLEL_LEVEL` | `4` | 并行构建任务数 |
 | `PYTHON` | `python3` 的路径 | Python 解释器 |
 
 切换编译器、目标架构或构建类型时使用不同构建目录。依赖校验失败时，根据报错检查 `lib/` 中对应库的版本和本地修改，再决定保留修改或重新准备依赖。
 
+上述构建、产物和资源目录变量支持绝对路径；相对路径均以项目根目录为基准。
+
+### 本地游戏和资源
+
+默认 `resources/system/roms/` 保留仓库附带的四款游戏和索引。本地自用游戏、排序、背景和配置使用单独的资源目录，避免修改默认资源。首次在项目根目录复制：
+
+```sh
+cp -a resources resources-local
+```
+
+将自己的游戏、同名封面和简介放入 `roms/`，整理需要部署的游戏，再导出本地游戏包。
+
+索引工具的 `--output` 要求输出目录不存在。首次复制默认资源后，以及每次重新导出前，只清理生成的部署目录，保留输入 `roms/`：
+
+```sh
+rm -rf -- resources-local/system/roms
+python3 tools/build_game_index.py --input roms --output resources-local/system/roms
+TUFTY_RESOURCES_DIR=resources-local TUFTY_ARTIFACT_DIR=dist-local bash tools/build.sh
+```
+
+自定义目录是整套输入，不与默认 `resources/` 合并；必须包含 `rom/`、`system/` 和 `state/`，目录可以为空，LittleFS 的配置仍放在 `state/state/` 下。
+
+普通 `bash tools/build.sh` 继续使用默认资源并输出到 `dist/`；本地构建指定 `dist-local/` 可将两类产物分开。交替构建可共用 `build/firmware/`，每次都会重新生成所选资源的镜像。
 
 ## 资源镜像
 

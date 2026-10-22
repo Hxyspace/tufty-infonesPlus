@@ -1,5 +1,6 @@
 /build/
 /dist/
+/dist-local/
 /lib/
 __pycache__/
 *.pyc
@@ -7,6 +8,7 @@ __pycache__/
 *.[nN][eE][sS]
 # New resources must be added explicitly with git add -f.
 /resources/
+/resources-local/
 *.bak
 /roms/*
 !/roms/README.md

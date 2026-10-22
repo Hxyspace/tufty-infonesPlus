@@ -2,6 +2,8 @@
 
 构建时将三个目录分别打包到设备对应的存储区域，文件路径相对各自目录保留：
 
+默认使用本目录；本地自用资源可复制到 Git 忽略的 `resources-local/`。再运行 `TUFTY_RESOURCES_DIR=resources-local TUFTY_ARTIFACT_DIR=dist-local bash tools/build.sh`。这会整体切换输入根目录，不与默认目录合并。首次复制和索引生成步骤见[本地资源构建](../docs/building.md#本地游戏和资源)。
+
 | 源目录 | 设备位置 | 格式 / 容量 |
 |---|---|---|
 | `resources/rom/` | `/rom/` | RM1 / 1 MiB |
