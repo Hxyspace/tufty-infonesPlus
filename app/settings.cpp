@@ -6,12 +6,10 @@
 #include "menu_repeat.hpp"
 #include "ui.hpp"
 #include "battery.hpp"
+#include "tufty_version.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
-#ifndef TUFTY_VERSION
-#define TUFTY_VERSION "unknown"
-#endif
 
 namespace settings {
 namespace {

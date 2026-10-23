@@ -23,14 +23,13 @@ add_executable(nes
 target_include_directories(nes PRIVATE app presentation platform/tufty2350 config "${fatfs}"
   lib/littlefs lib/cjson)
 target_compile_definitions(nes PRIVATE TUFTY2350
-  TUFTY_VERSION="${PROJECT_VERSION}"
   TUFTY_FATFS_CONFIG="tufty_ffconf.h"
   PICO_STACK_SIZE=0x1000 PICO_CORE1_STACK_SIZE=0x1000
   LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR LFS_NO_MALLOC cJSON_NESTING_LIMIT=8
   PICO_STDIO_USB_ENABLE_RESET_VIA_BAUD_RATE=0
   PICO_BTSTACK_CYW43_MAX_HCI_PROCESS_LOOP_COUNT=4)
 target_link_libraries(nes_core PUBLIC pico_base_headers)
-target_link_libraries(nes PRIVATE nes_host pico_stdlib pico_multicore pico_flash pico_unique_id
+target_link_libraries(nes PRIVATE nes_host tufty_version pico_stdlib pico_multicore pico_flash pico_unique_id
   hardware_psram hardware_dma hardware_pio hardware_pwm hardware_clocks
   hardware_flash hardware_powman hardware_adc tinyusb_device
   tufty_radio_poll pico_btstack_ble pico_btstack_cyw43)
@@ -44,7 +43,7 @@ pico_generate_pio_header(nes "${CMAKE_CURRENT_SOURCE_DIR}/platform/tufty2350/par
 pico_enable_stdio_uart(nes 0)
 pico_enable_stdio_usb(nes 0)
 pico_set_program_name(nes "Tufty NES Flash")
-pico_set_program_version(nes "${PROJECT_VERSION}")
+pico_set_program_version(nes "${TUFTY_VERSION}")
 set_target_properties(nes PROPERTIES OUTPUT_NAME tufty-nes-flash)
 # Preserve the SDK/native tagged compatibility block behavior; check separately.
 pico_add_extra_outputs(nes)

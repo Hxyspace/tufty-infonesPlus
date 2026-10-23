@@ -17,10 +17,10 @@ add_executable(tufty_preview main.cpp devices.cpp flash.cpp
   ${root}/lib/fatfs/source/ff.c ${root}/lib/fatfs/source/ffunicode.c
   ${root}/lib/littlefs/lfs.c ${root}/lib/littlefs/lfs_util.c ${root}/lib/cjson/cJSON.c)
 target_compile_definitions(tufty_preview PRIVATE SDL_MAIN_HANDLED TUFTY_HOST_PREVIEW
-  TUFTY_VERSION="${PROJECT_VERSION}" TUFTY_FATFS_CONFIG="tufty_ffconf.h"
+  TUFTY_FATFS_CONFIG="tufty_ffconf.h"
   LFS_NO_MALLOC LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR cJSON_NESTING_LIMIT=8)
 target_include_directories(tufty_preview PRIVATE include ${root} ${root}/app
   ${root}/config ${root}/presentation ${root}/platform/tufty2350
   ${root}/lib/fatfs/source ${root}/lib/littlefs ${root}/lib/cjson)
 target_compile_options(tufty_preview PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_link_libraries(tufty_preview PRIVATE nes_host SDL2::SDL2)
+target_link_libraries(tufty_preview PRIVATE nes_host tufty_version SDL2::SDL2)

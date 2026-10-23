@@ -18,7 +18,7 @@ add_executable(input_tests input_tests.cpp ${runtime}/gamepad.cpp ${runtime}/inp
 add_test(NAME input COMMAND input_tests)
 add_executable(settings_tests settings_tests.cpp ${runtime}/settings.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp
   ${runtime}/input.cpp ${runtime}/gamepad.cpp ${runtime}/controllers.cpp ${runtime}/protocol.cpp battery_stub.cpp)
-target_compile_definitions(settings_tests PRIVATE TUFTY_VERSION="${PROJECT_VERSION}")
+target_link_libraries(settings_tests PRIVATE tufty_version)
 add_test(NAME settings COMMAND settings_tests)
 add_executable(bluetooth_manager_tests bluetooth_manager_tests.cpp ${runtime}/bluetooth_manager.cpp)
 add_test(NAME bluetooth_manager COMMAND bluetooth_manager_tests)
@@ -47,6 +47,7 @@ add_test(NAME power_platform COMMAND power_platform_tests)
 add_executable(disk_ui_tests disk_ui_tests.cpp ${runtime}/disk_ui.cpp)
 add_test(NAME disk_ui COMMAND disk_ui_tests)
 add_executable(usb_disk_tests usb_disk_tests.cpp ${runtime}/usb.cpp ${runtime}/protocol.cpp ${runtime}/gamepad.cpp ${runtime}/fat_disk.cpp)
+target_link_libraries(usb_disk_tests PRIVATE tufty_version)
 target_include_directories(usb_disk_tests BEFORE PRIVATE ${CMAKE_CURRENT_LIST_DIR}/usb_stubs)
 add_test(NAME usb_disk COMMAND usb_disk_tests)
 add_executable(storage_tests storage_tests.cpp ${runtime}/storage.cpp ${runtime}/gamepad.cpp ${runtime}/fat_disk.cpp

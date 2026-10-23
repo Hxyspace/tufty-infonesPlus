@@ -12,6 +12,7 @@
 #include "disk_ui.hpp"
 #include "disk_activity.hpp"
 #include "memory_stats.hpp"
+#include "tufty_version.hpp"
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/stdio/driver.h"
@@ -251,7 +252,10 @@ void poll() {
     bool c0=tud_cdc_n_connected(0);
     if(c0!=console_connected) console_line.reset();
     if(!c0) tud_cdc_n_read_flush(0);
-    if(c0 && !console_connected) std::printf("Tufty NES: CDC0 Console, CDC1 Gamepad%s\n",mode?" (disk mode)":"; type help");
+    if(c0 && !console_connected) {
+        std::printf("Tufty NES: CDC0 Console, CDC1 Gamepad%s\n",mode?" (disk mode)":"; type help");
+        std::printf("Build: %s\n",TUFTY_VERSION_TIMESTAMP);
+    }
     console_connected=c0;
     for(int budget=0;budget<128 && tud_cdc_n_available(0);++budget) {
         int c=tud_cdc_n_read_char(0);

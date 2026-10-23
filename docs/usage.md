@@ -47,7 +47,7 @@ python3 tools/serial_gamepad.py --port /dev/ttyACM1 --buttons 0x80 --seconds 3
 
 ## BLE 手柄
 
-支持已适配的 XTARK 实体手柄，以及安卓手柄应用的 NES / XTARK HID 模式。
+支持已适配的 XTARK 实体手柄，以及 [Tufty Pad 安卓手柄应用](https://github.com/Hxyspace/tufty-infonesPlus/releases)的 NES / XTARK HID 模式。
 
 1. 开启实体手柄，或在安卓应用中选择 NES / XTARK HID 模式并点“开启手柄”。
 2. Tufty 默认自动扫描连接，也可在 Settings 的 Bluetooth 中选择设备。

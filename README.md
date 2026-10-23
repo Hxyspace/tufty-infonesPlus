@@ -19,6 +19,8 @@
 3. 通过游戏库最左侧的 `Settings → System → USB disk mode` 或连续双 Reset 进入磁盘模式，将自己的 `.nes` 文件放入磁盘 `roms/` 目录，安全弹出后返回菜单。
 4. 连接手柄，选择游戏并启动。连接方法和素材格式见[使用指南](docs/usage.md)。
 
+Android 手机可使用 [Tufty Pad APK](https://github.com/Hxyspace/tufty-infonesPlus/releases) 作为蓝牙手柄。
+
 设备构建：
 
 ```sh
