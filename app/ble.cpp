@@ -25,6 +25,7 @@ bool tgp_profile=false;
 uint8_t last_error=0;
 uint32_t state_at=0,max_poll_gap=0,last_poll=0,max_poll_work=0,restarts=0;
 uint32_t scan_reports=0,scan_candidates=0;
+uint32_t scan_starts=0;
 const char *restart_reason=nullptr;
 hci_con_handle_t handle=HCI_CON_HANDLE_INVALID;
 bd_addr_t peer{},skipped_peer{};
@@ -55,7 +56,7 @@ void scan() {
     scan_reports=scan_candidates=0;
     gap_set_scan_parameters(1,96,48); // Active scan also receives scan responses.
     if(!manager.begin_scan(now())) {phase(State::Waiting); return;}
-    phase(State::Scanning); gap_start_scan();
+    phase(State::Scanning); ++scan_starts; gap_start_scan();
     std::printf("BLE: SCANNING HID\n");
 }
 void retry() {
@@ -224,12 +225,12 @@ void event(uint8_t packet_type,uint16_t,uint8_t *packet,uint16_t size) {
     }
 }
 void report() {
-    std::printf("BLE STATUS: state=%s buttons=0x%02x home=%u reports=%lu rejected=%lu poll_gap_ms=%lu poll_work_ms=%lu restarts=%lu mode=%s whitelist=%u\n",
+    std::printf("BLE STATUS: state=%s buttons=0x%02x home=%u reports=%lu rejected=%lu poll_gap_ms=%lu poll_work_ms=%lu restarts=%lu mode=%s whitelist=%u state_age_ms=%lu discovering=%u\n",
         name(),receiver.nes(),receiver.home,
         static_cast<unsigned long>(receiver.received),static_cast<unsigned long>(receiver.rejected),
         static_cast<unsigned long>(max_poll_gap),static_cast<unsigned long>(max_poll_work),
         static_cast<unsigned long>(restarts),manager.configuration().policy.mode==bluetooth::Mode::WhitelistOnly?"whitelist":"auto",
-        manager.configuration().policy.count);
+        manager.configuration().policy.count,static_cast<unsigned long>(now()-state_at),manager.discovering());
     if(tgp_profile && handle!=HCI_CON_HANDLE_INVALID) {
         std::printf("BLE PEER: address=%s type=%s protocol=TGP id=%u version=%u\n",bd_addr_to_str(peer),
             peer_type==BD_ADDR_TYPE_LE_RANDOM?"random":"public",manager.configuration().controller_id,ble_tgp::version());
@@ -238,8 +239,8 @@ void report() {
             handle==HCI_CON_HANDLE_INVALID?"none":bd_addr_to_str(peer),
             peer_type==BD_ADDR_TYPE_LE_RANDOM?"random":"public",ble_gamepad::service(),ble_gamepad::report(),manager.configuration().scan_uuid,tracing);
     }
-    std::printf("BLE SCAN: reports=%lu candidates=%lu\n",static_cast<unsigned long>(scan_reports),
-        static_cast<unsigned long>(scan_candidates));
+    std::printf("BLE SCAN: reports=%lu candidates=%lu starts=%lu\n",static_cast<unsigned long>(scan_reports),
+        static_cast<unsigned long>(scan_candidates),static_cast<unsigned long>(scan_starts));
 }
 }
 uint8_t buttons() {return receiver.nes();}
@@ -258,6 +259,7 @@ bool discover(uint32_t duration_ms) {
 }
 void stop_discovery() {manager.stop_discovery();}
 size_t candidates(Candidate *out,size_t capacity) {return manager.candidates(out,capacity);}
+size_t candidate_count() {return manager.count();}
 bool connect(const bluetooth::Peer &key) {
     if(usb::disk_mode() || !manager.connect(key)) return false;
     receiver.release(); return true;

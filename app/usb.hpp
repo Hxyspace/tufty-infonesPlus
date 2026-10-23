@@ -5,6 +5,8 @@ namespace usb {
 constexpr uint16_t vid=0xcafe, runtime_pid=0x4025, disk_pid=0x4027;
 extern tgp::Receiver pad;
 extern bool disk_requested, rescan_requested, save_requested, dirty;
+extern bool boot_requested;
+[[noreturn]] void reboot_bootsel();
 bool consume_disk_request();
 bool disk_mode();
 void init(bool disk);

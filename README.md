@@ -8,7 +8,7 @@
 - 双核显示：模拟与应用运行在 core0，LCD 传输运行在 core1；游戏帧使用 SRAM，菜单帧使用 PSRAM，通过 PIO/DMA 输出。
 - 带顺序、英文标题和分页简介的游戏索引，58×80 封面与自定义背景，通过 USB 磁盘管理游戏和素材。
 - 本机按键、XTARK / 安卓 HID 手柄、USB 串口 TGP v3，以及串口和 BLE TGP v1/v2。
-- Console 配置、BLE 设备发现与白名单、亮度调节、自动休眠与按键唤醒。
+- 图形 Settings，支持 BLE 设备发现与允许列表、亮度调节、自动休眠与按键唤醒。
 
 仅适配 Tufty2350。公共加载入口支持 Mapper **0、1、2、3、4、7、48、66、69** 的受限板型布局，以及受限 NES 2.0 格式；详细范围见[核心契约](docs/core-contract.md#卡带支持范围)。固件没有音频设备输出，不保存游戏进度或电池 SRAM；FDS、NSF 和特殊外设不在支持范围内。
 
@@ -16,8 +16,8 @@
 
 1. 按[构建指南](docs/building.md)生成三种 UF2：程序更新版、程序＋只读资源版、完整初始化版。
 2. 进入 BOOTSEL 并复制所需 UF2：空白设备使用 `tufty-nes-with-filesystem.uf2` 初始化；已有设备普通更新使用 `tufty-nes-flash.uf2`，同时更新只读背景使用 `tufty-nes-with-romfs.uf2`。**完整初始化版会覆盖原有游戏、素材和配置**，详见[存储布局](docs/storage.md#flash-布局)。
-3. 启动后通过连续双 Reset，或 Console 的 `usb disk` 命令进入磁盘模式，将自己的 `.nes` 文件放入磁盘 `roms/` 目录，安全弹出后返回菜单。
-4. 连接手柄，选择游戏并启动。连接方法、Console 命令和素材格式见[使用指南](docs/usage.md)。
+3. 通过游戏库最左侧的 `Settings → System → USB disk mode` 或连续双 Reset 进入磁盘模式，将自己的 `.nes` 文件放入磁盘 `roms/` 目录，安全弹出后返回菜单。
+4. 连接手柄，选择游戏并启动。连接方法和素材格式见[使用指南](docs/usage.md)。
 
 设备构建：
 
@@ -45,7 +45,7 @@ bash tools/test.sh
 | NES A / B | B / 由手柄提供 | Z 或 Space / X |
 | Start / Select | 由手柄提供 | Enter / 右 Shift |
 | 游戏上 / 下 / 左 / 右 | Up / Down / A / C | 方向键或 WASD |
-| 返回菜单 | Home | Esc（TGP v3） |
+| 退出当前应用回首页 | Home | Esc（TGP v3） |
 
 HID 手柄使用 Home，或摇杆回中并同时按住 L3+R3 1.5 秒返回菜单。TGP v1/v2 使用本机 Home。串口与 BLE 同时连接时使用一个活跃远程来源，本机按键始终可用。
 
@@ -53,11 +53,11 @@ HID 手柄使用 Home，或摇杆回中并同时按住 L3+R3 1.5 秒返回菜单
 
 | 文档 | 内容 |
 |---|---|
-| [使用指南](docs/usage.md) | USB、手柄、Console、休眠、游戏与素材管理 |
+| [使用指南](docs/usage.md) | 手柄、休眠、游戏与素材管理，以及开发调试命令 |
 | [构建指南](docs/building.md) | 工具链、固定依赖、固件打包与主机测试 |
 | [固件架构](docs/architecture.md) | 目录职责、模块关系、双核协作和扩展边界 |
 | [核心契约](docs/core-contract.md) | 宿主 API、卡带加载、支持范围与资源生命周期 |
-| [存储与升级](docs/storage.md) | Flash 分区、配置格式、磁盘独占和升级注意事项 |
+| [存储与升级](docs/storage.md) | Flash 分区、镜像选择、磁盘访问和升级注意事项 |
 | [手柄协议](docs/gamepad-protocol.md) | TGP 报文、HID 布局、会话与超时规则 |
 
 ## 许可与核心来源

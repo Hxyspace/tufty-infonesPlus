@@ -11,6 +11,9 @@ bool Manager::discover(uint32_t duration_ms) {
     duration_=duration_ms; discovery_pending_=true; request_=true; return true;
 }
 void Manager::stop_discovery() {
+    // connect() has already left discovery. A UI back/exit must not replace
+    // that request or tear down the resulting healthy connection.
+    if(!discovery_ && !discovery_pending_) return;
     discovery_=discovery_pending_=done_=false; request_=true;
 }
 bool Manager::connect(const Peer &peer) {

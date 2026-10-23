@@ -14,7 +14,7 @@ endif()
 set(fatfs "${CMAKE_CURRENT_SOURCE_DIR}/lib/fatfs/source")
 add_executable(nes
   app/main.cpp presentation/display.cpp platform/tufty2350/panel.cpp platform/tufty2350/core_memory.cpp app/menu.cpp app/storage.cpp app/fat_disk.cpp
-  app/rom_store.cpp app/usb.cpp app/descriptors.cpp app/protocol.cpp
+  app/rom_store.cpp app/usb.cpp app/descriptors.cpp app/protocol.cpp app/settings.cpp app/ui.cpp
   app/power.cpp platform/tufty2350/power_board.cpp platform/tufty2350/power_reset.cpp platform/tufty2350/battery.cpp
   app/disk_ui.cpp app/ble.cpp app/ble_gamepad.cpp app/ble_tgp.cpp app/bluetooth_manager.cpp
   app/gamepad.cpp app/input.cpp app/controllers.cpp platform/tufty2350/ble_stack.c platform/tufty2350/radio_wait.c
@@ -23,6 +23,7 @@ add_executable(nes
 target_include_directories(nes PRIVATE app presentation platform/tufty2350 config "${fatfs}"
   lib/littlefs lib/cjson)
 target_compile_definitions(nes PRIVATE TUFTY2350
+  TUFTY_VERSION="${PROJECT_VERSION}"
   TUFTY_FATFS_CONFIG="tufty_ffconf.h"
   PICO_STACK_SIZE=0x1000 PICO_CORE1_STACK_SIZE=0x1000
   LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR LFS_NO_MALLOC cJSON_NESTING_LIMIT=8

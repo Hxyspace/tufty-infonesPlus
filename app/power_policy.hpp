@@ -58,6 +58,7 @@ public:
         if(error_==Error::None) error_=Error::Backend;
     }
     bool pending() const {return pending_;}
+    void cancel() {pending_=false;}
     uint32_t duration() const {return duration_;}
     Error error() const {return error_;}
 private:

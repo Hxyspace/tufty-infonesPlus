@@ -317,10 +317,20 @@ int main(int argc,char **argv) {
             advertise(); assert(!connects); advertise(0x180f,0,0xbb); assert(connects==1);
             linked(); ready();
             report(255); assert(ble::status().state==ble::State::Ready);
+            const auto scans_before_back=scans;
+            // Settings back/exit after a successful trial connection preserves
+            // both the HCI link and the already validated input session.
+            ble::stop_discovery(); ble::poll();
+            ble::stop_discovery(); ble::poll();
+            assert(ble::status().state==ble::State::Ready && ble::input_receiver().valid);
+            assert(!disconnects && scans==scans_before_back);
             // A new selection survives the old link's asynchronous disconnection.
-            assert(ble::connect(list[0].peer)); ble::poll(); assert(disconnects==1);
+            assert(ble::connect(list[0].peer)); ble::stop_discovery(); ble::poll(); assert(disconnects==1);
             disconnected(); advance(1000); advertise(0x180f,0,0xbb); assert(connects==1);
-            advertise(); assert(connects==2); linked(); ready();
+            advertise(); assert(connects==2); linked();
+            ble::stop_discovery(); ble::poll(); // Returning while matching the report profile also preserves the link.
+            assert(disconnects==1 && ble::status().state==ble::State::Discovering);
+            ready();
             assert(ble::discover(1000)); ble::poll(); assert(disconnects==2);
             disconnected(); advance(1000); advertise(); assert(connects==2);
             advance(1000); assert(ble::status().state==ble::State::Waiting);

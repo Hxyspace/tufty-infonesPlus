@@ -4,6 +4,9 @@
 #include "storage.hpp"
 #include "usb.hpp"
 #include "menu.hpp"
+#include "ui.hpp"
+#include "settings.hpp"
+#include "configuration.hpp"
 #include "menu_repeat.hpp"
 #include "core_api/host.hpp"
 #include "core_api/cartridge.hpp"
@@ -57,7 +60,7 @@ static void game_input(uint8_t &p1,uint8_t &p2,bool &quit) {
     tufty_service();
     sample_local();
     p1=input::hub.nes(storage::config.swap_ab);p2=0;
-    quit=input::hub.home() || usb::disk_requested || usb::rescan_requested || power::pending();
+    quit=input::hub.home() || usb::disk_requested || usb::boot_requested || usb::rescan_requested || power::pending();
 }
 static void __not_in_flash_func(game_line)(unsigned y,const uint16_t *pixels,uint8_t mask,bool pal) {
     SCREEN->line(y,pixels,mask,pal);
@@ -104,13 +107,6 @@ static void run_game() {
     diagnostics::playing=false;
     diagnostics::working=false;
 }
-static void flush_config() {
-    if(!usb::dirty && !usb::save_requested) return;
-    usb::save_requested=false;
-    bool ok=storage::save();
-    if(ok) usb::dirty=false;
-    std::printf("State save: %s\n",ok?"OK":"unavailable/failed; original record retained");
-}
 int main() {
     display::early_init();
     power::init();
@@ -127,6 +123,7 @@ int main() {
     if(psram_get_size()<8*1024*1024) panic("8 MiB PSRAM required");
     display::start();
     storage::init(!disk);
+    configuration::init();
     controllers::init();
     display::brightness(storage::config.brightness);
     if(disk) {
@@ -135,7 +132,8 @@ int main() {
     ble::init();
     ble_ready=true;
     storage::scan(); menu::load_art();
-    int selected=0;
+    int selected=storage::count?1:0;
+    uint32_t sleep_duration=0;
     menu::Repeat repeat;
     float position=selected;
     unsigned back=1;
@@ -143,46 +141,74 @@ int main() {
     sample_local(); input::hub.clear_events();
     power::menu(true);
     menu::enter(opened);
-    menu::select(selected);
+    menu::select(selected-1);
     while(true) {
         tufty_service();
-        menu::service(to_ms_since_boot(get_absolute_time()));
-        if(usb::disk_requested) {
-            flush_config();
-            if(usb::dirty) {usb::disk_requested=false; std::printf("Disk entry blocked: unsaved State\n");}
-            else usb::reboot_disk();
+        ui::service(to_ms_since_boot(get_absolute_time()));
+        configuration::sync();
+        if(!settings::transitioning()) {
+            sleep_duration=0;
+            if(usb::disk_requested || usb::boot_requested) {
+                const bool disk=usb::disk_requested;
+                usb::disk_requested=usb::boot_requested=false;
+                settings::request_exit(disk?settings::Exit::Disk:settings::Exit::Bootsel);
+            } else if(power::pending()) {
+                sleep_duration=power::duration(); power::cancel();
+                settings::request_exit(settings::Exit::Sleep);
+            }
         }
-        if(power::pending()) power::process();
-        if(usb::save_requested) flush_config();
+        if(usb::save_requested && !settings::transitioning()) settings::request_save();
         if(usb::rescan_requested) {
             char previous_name[256]{};
-            if(selected>=0 && static_cast<size_t>(selected)<storage::count)
-                std::snprintf(previous_name,sizeof(previous_name),"%s",storage::entries[selected].name);
+            if(selected>0 && static_cast<size_t>(selected)<=storage::count)
+                std::snprintf(previous_name,sizeof(previous_name),"%s",storage::entries[selected-1].name);
             usb::rescan_requested=false; storage::scan(true); menu::select(-1);
             selected=0;
             for(size_t i=0;i<storage::count;++i)
-                if(!std::strcmp(previous_name,storage::entries[i].name)) {selected=static_cast<int>(i);break;}
+                if(!std::strcmp(previous_name,storage::entries[i].name)) {selected=static_cast<int>(i)+1;break;}
             position=selected; menu::reset_page();
-            menu::select(selected);
+            menu::select(selected-1);
         }
         auto keys=input::hub.take_menu();
-        power::idle(keys.held || keys.pressed || input::hub.home());
-        if(power::pending()) {power::process(); continue;}
+        const bool home=input::hub.take_home();
+        if(!settings::transitioning()) power::idle(keys.held || keys.pressed || home || input::hub.home());
+        if(settings::active()) {
+            settings::update(keys,home,to_ms_since_boot(get_absolute_time()));
+            settings::draw(display::menu_buffers[back]);
+            display::present_menu(back); back^=1;
+            settings::after_present();
+            const auto exit=settings::take_exit();
+            if(exit==settings::Exit::Disk) usb::reboot_disk();
+            else if(exit==settings::Exit::Bootsel) usb::reboot_bootsel();
+            else if(exit==settings::Exit::Sleep) {
+                power::sleep(sleep_duration); sleep_duration=0; power::process(true);
+            }
+            if(exit!=settings::Exit::None) {
+                if(exit!=settings::Exit::ResumeLibrary) {selected=0; position=0;}
+                repeat.reset(); menu::select(selected-1);
+                opened=to_ms_since_boot(get_absolute_time()); power::activity();
+            }
+            continue;
+        }
+        if(power::pending()) continue;
         uint8_t pressed=repeat.poll(keys,to_ms_since_boot(get_absolute_time()));
         const int old_selected=selected;
         if(pressed&input::Previous) selected=std::max(0,selected-1);
-        if(pressed&input::Next) selected=std::min<int>(std::max<int>(0,storage::count-1),selected+1);
+        if(pressed&input::Next) selected=std::min<int>(storage::count,selected+1);
         if(selected!=old_selected) storage::error[0]=0;
-        if(!(pressed&(input::Previous|input::Next))) {
+        if(selected>0 && !(pressed&(input::Previous|input::Next))) {
             if(pressed&input::PagePrevious) menu::previous_page();
             if(pressed&input::PageNext) menu::next_page();
         }
-        if(menu::launch_requested(pressed) && storage::count) {
+        if(menu::launch_requested(pressed) && selected==0) {
+            settings::open(); repeat.reset(); continue;
+        }
+        if(menu::launch_requested(pressed) && selected>0) {
             repeat.reset();
             input::hub.clear_events();
             power::menu(false);
             storage::error[0]=0;
-            if(storage::load(selected,rom_data,rom_bytes)) {
+            if(storage::load(selected-1,rom_data,rom_bytes)) {
                 run_game();
             }
             input::hub.clear_events();
@@ -191,7 +217,7 @@ int main() {
             menu::enter(opened);
         }
         const auto prepare_started=time_us_32();
-        menu::select(selected);
+        menu::select(selected-1);
         menu::timing.prepare_us=time_us_32()-prepare_started;
         menu::timing.prepare_max_us=std::max(menu::timing.prepare_max_us,menu::timing.prepare_us);
         position+=(selected-position)*0.3f;
@@ -206,11 +232,11 @@ int main() {
         menu::timing.frame_max_us=std::max(menu::timing.frame_max_us,menu::timing.frame_us);
         ++menu::timing.frames;
         const auto prefetch_started=time_us_32();
-        if(!usb::disk_requested && !usb::rescan_requested && !power::pending() &&
+        if(!usb::disk_requested && !usb::boot_requested && !usb::rescan_requested && !power::pending() &&
            menu::load_current_cover()) {
             menu::timing.cover_load_us=time_us_32()-prefetch_started;
             menu::timing.cover_load_max_us=std::max(menu::timing.cover_load_max_us,menu::timing.cover_load_us);
-        } else if(!usb::disk_requested && !usb::rescan_requested && !power::pending() &&
+        } else if(!usb::disk_requested && !usb::boot_requested && !usb::rescan_requested && !power::pending() &&
                   menu::prefetch(to_ms_since_boot(get_absolute_time()),keys.held || keys.pressed)) {
             menu::timing.prefetch_us=time_us_32()-prefetch_started;
             menu::timing.prefetch_max_us=std::max(menu::timing.prefetch_max_us,menu::timing.prefetch_us);

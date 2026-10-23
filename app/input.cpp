@@ -62,7 +62,10 @@ void Hub::update() {
     if(local_keys&LocalB) keys|=Confirm;
     uint8_t prior=menu.held;
     menu.held=keys;
-    if(home()) {if(!barrier) ++menu.epoch; barrier=true; menu.pressed=menu.released=local_pressed=local_released=0;}
+    const bool home_now=home();
+    if(home_now && !home_down) home_pressed=true;
+    home_down=home_now;
+    if(home_now) {if(!barrier) ++menu.epoch; barrier=true; menu.pressed=menu.released=local_pressed=local_released=0;}
     if(barrier) {
         if(!keys && !home()) barrier=false;
         return;
@@ -96,5 +99,6 @@ uint8_t Hub::nes(bool swap_ab) const {
 Snapshot Hub::take_menu() {
     Snapshot result=menu; if(barrier) result.held=result.pressed=result.released=0; menu.pressed=menu.released=local_pressed=local_released=0; return result;
 }
-void Hub::clear_events() {++menu.epoch; menu.pressed=menu.released=local_pressed=local_released=0; barrier=true; update();}
+bool Hub::take_home() {bool result=home_pressed; home_pressed=false; return result;}
+void Hub::clear_events() {++menu.epoch; menu.pressed=menu.released=local_pressed=local_released=0; barrier=true; update(); home_pressed=false;}
 }

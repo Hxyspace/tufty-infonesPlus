@@ -1,8 +1,7 @@
 #include "menu.hpp"
+#include "ui.hpp"
 #include "storage.hpp"
 #include "menu_assets.hpp"
-#include "battery.hpp"
-#include "input.hpp"
 #include "menu_layout.hpp"
 #include <algorithm>
 #include <cmath>
@@ -17,17 +16,13 @@
 void tufty_service();
 
 namespace menu {
-static uint16_t __uninitialized_psram("art") custom_bg[320*240];
 static uint16_t __uninitialized_psram("cover") covers[3][58*80];
 struct Cover { int index=-1; uint32_t generation=0; bool valid=false; };
 static Cover cover_cache[3];
-static bool have_bg=false;
 static bool prefetch_wait=true;
 static uint32_t prefetch_since=0;
 static int cover_index=-1;
 static uint32_t cover_generation=0;
-static uint32_t last_battery_sample=0;
-static bool battery_sampled=false;
 static int description_index=-1;
 static uint32_t description_generation=0;
 static int description_page=0;
@@ -86,47 +81,15 @@ bool prefetch(uint32_t now_ms,bool navigation_active) {
     return false;
 }
 
-static uint16_t rgb(int r,int g,int b) {return ((r>>3)<<11)|((g>>2)<<5)|(b>>3);}
-static uint16_t blend(uint16_t a,uint16_t b,int alpha) {
-    int r=((a>>11)*(255-alpha)+(b>>11)*alpha)/255;
-    int g=(((a>>5)&63)*(255-alpha)+((b>>5)&63)*alpha)/255;
-    int bl=((a&31)*(255-alpha)+(b&31)*alpha)/255;
-    return (r<<11)|(g<<5)|bl;
-}
-static void box(uint16_t *out,int x,int y,int w,int h,uint16_t c) {
-    for(int yy=std::max(0,y);yy<std::min(240,y+h);++yy)
-        for(int xx=std::max(0,x);xx<std::min(320,x+w);++xx) out[yy*320+xx]=c;
-}
-static void circle(uint16_t *out,int cx,int cy,int radius,uint16_t color) {
-    for(int y=-radius;y<=radius;++y) for(int x=-radius;x<=radius;++x)
-        if(x*x+y*y<=radius*radius && cx+x>=0 && cx+x<320 && cy+y>=0 && cy+y<240)
-            out[(cy+y)*320+cx+x]=color;
-}
-static int text_width(const char *s,const art::Glyph *glyphs) {
-    int width=0;
-    for(;*s;++s) {
-        unsigned c=static_cast<unsigned char>(*s);
-        if((c&0xc0)==0x80) continue;
-        width+=glyphs[(c>=32 && c<127?c:'?')-32].advance;
-    }
-    return width;
-}
+using ui::rgb;
+using ui::blend;
+using ui::box;
+using ui::circle;
+static int text_width(const char *s,const art::Glyph *glyphs) {return ui::glyph_width(s,glyphs);}
 static void text(uint16_t *out,const char *s,int x,int y,uint16_t color,
                  const art::Glyph *glyphs=art::body_glyphs,const uint8_t *pixels=art::body_pixels,
                  int clip_top=0,int clip_bottom=240) {
-    for(;*s;++s) {
-        unsigned c=static_cast<unsigned char>(*s);
-        if((c&0xc0)==0x80) continue;
-        auto &g=glyphs[(c>=32 && c<127?c:'?')-32];
-        for(int yy=0;yy<g.height;++yy) {
-            if(y+yy<std::max(0,clip_top) || y+yy>=std::min(240,clip_bottom)) continue;
-            for(int xx=0;xx<g.width;++xx) if(x+xx>=0 && x+xx<320) {
-                uint8_t a=pixels[g.offset+yy*g.width+xx];
-                if(a) out[(y+yy)*320+x+xx]=blend(out[(y+yy)*320+x+xx],color,a);
-            }
-        }
-        x+=g.advance;
-    }
+    ui::glyph_text(out,s,x,y,color,glyphs,pixels,clip_top,clip_bottom);
 }
 static void title(uint16_t *out,const char *source,int x,int y) {
     char line[128]{}; size_t used=0; int row=0, width=0;
@@ -190,21 +153,14 @@ static void prepare_description(int index) {
     prepare_body_lines();
 }
 void load_art() {
-    size_t n=0;
-    have_bg=storage::read_file("/system/assets/nes-background.565",custom_bg,sizeof(custom_bg),n) && n==sizeof(custom_bg);
-    if(!have_bg) have_bg=storage::read_file("/rom/nes-background.565",custom_bg,sizeof(custom_bg),n) && n==sizeof(custom_bg);
+    ui::load_background();
+    ui::load_icons();
     cover_index=-1; description_index=-1; previous.index=-1;
     for(auto &entry:cover_cache) entry={};
     prefetch_wait=true;
 }
-void enter(uint32_t now_ms) {
-    battery::refresh(now_ms); last_battery_sample=now_ms; battery_sampled=true;
-}
-void service(uint32_t now_ms) {
-    if(!battery_sampled || now_ms-last_battery_sample>=5000) {
-        enter(now_ms);
-    }
-}
+void enter(uint32_t now_ms) {ui::service(now_ms);}
+void service(uint32_t now_ms) {ui::service(now_ms);}
 void select(int index) {
     const auto generation=storage::generation();
     if(index!=description_index && description_index>=0 && description_generation==generation) {
@@ -223,38 +179,34 @@ void select(int index) {
 void reset_page() {description_page=0; description_index=-1;}
 void previous_page() {if(description_index>=0 && description_page>0) {--description_page; prepare_body_lines();}}
 void next_page() {if(description_index>=0 && description_page+1<static_cast<int>(description_pages)) {++description_page; prepare_body_lines();}}
-static void status_icons(uint16_t *out) {
-    const auto &reading=battery::reading();
-    const uint16_t grey=rgb(100,100,100);
-    const int level=std::min(100,int(reading.percent));
-    const uint16_t color=!reading.valid?grey:level<50?rgb(225+21*level/50,64+120*level/50,75-25*level/50):
-        rgb(246-246*(level-50)/50,184-18*(level-50)/50,50+56*(level-50)/50);
-    box(out,270,14,23,1,color); box(out,270,25,23,1,color); box(out,270,14,1,12,color); box(out,292,14,1,12,color);
-    box(out,293,18,2,4,color);
-    if(reading.valid) {
-        const int width=17*level/100;
-        if(width) box(out,273,17,width,6,color);
-    }
-    uint16_t connection=grey;
-    const auto active=input::hub.active_remote();
-    if(active==input::Source::Ble && input::hub.status(input::Source::Ble).available) connection=rgb(70,220,100);
-    else if(active==input::Source::Serial && input::hub.status(input::Source::Serial).available) connection=rgb(65,145,255);
-    circle(out,305,20,4,connection);
-}
 void draw(uint16_t *out,int selected,float position,uint32_t elapsed,const char *message) {
-    if(have_bg) std::memcpy(out,custom_bg,sizeof(custom_bg));
-    else std::fill(out,out+320*240,0);
-    text(out,"TUFTY",14,8,0xffff,art::header_glyphs,art::header_pixels);
-    box(out,80,9,1,23,rgb(78,78,78));
-    text(out,"NES",92,8,rgb(0,193,222),art::header_glyphs,art::header_pixels);
-    status_icons(out);
-    if(storage::count) {
+    ui::canvas(out);
+    {
         const int first=std::max(0,static_cast<int>(std::floor(position))-1);
-        const int last=std::min<int>(storage::count,first+4);
-        for(int i=first;i<last;++i) {
-            const int left=13+std::lround((i-position)*310);
+        const int last=std::min<int>(storage::count+1,first+4);
+        for(int card=first;card<last;++card) {
+            const int i=card-1;
+            const int left=13+std::lround((card-position)*310);
             if(left>=320 || left+294<=0) continue;
-            const int iy=66+std::lround(std::sin((elapsed+i*700)/2400.0f*6.2831853f)*3);
+            const int iy=66+std::lround(std::sin((elapsed+card*700)/2400.0f*6.2831853f)*3);
+            if(card==0) {
+                if(!ui::icon(out,ui::Icon::Settings,left+11,iy+11)) {
+                    const auto cyan=rgb(0,193,222);
+                    for(int tooth=0;tooth<8;++tooth) {
+                        const float angle=tooth*0.78539816f;
+                        box(out,left+35+std::lround(std::cos(angle)*21),iy+35+std::lround(std::sin(angle)*21),10,10,cyan);
+                    }
+                    circle(out,left+40,iy+40,23,cyan);
+                    circle(out,left+40,iy+40,14,rgb(0,43,73));
+                    circle(out,left+40,iy+40,6,rgb(255,174,45));
+                }
+                title(out,"Settings",left+94,53);
+                text(out,"SYSTEM",left+40-text_width("SYSTEM",art::body_glyphs)/2,153,rgb(115,120,128));
+                const char *lines[]={"Display and controls","Power and device","preferences.","No games installed."};
+                for(int row=0;row<(storage::count?3:4);++row)
+                    text(out,lines[row],left+94,119+22*row,rgb(192,197,203),art::body_glyphs,art::body_pixels,40,210);
+                continue;
+            }
             const bool old=previous.index==i && previous.generation==storage::generation();
             const int slot=cached_cover(i);
             const uint16_t *pixels=slot>=0 && cover_cache[slot].valid?covers[slot]:nullptr;
@@ -275,7 +227,7 @@ void draw(uint16_t *out,int selected,float position,uint32_t elapsed,const char 
             char counter[16]; std::snprintf(counter,sizeof(counter),"%02u/%02u",unsigned(i)+1,unsigned(storage::count));
             // The left column has 94 px; use its full width for large counts.
             text(out,counter,left+40-text_width(counter,art::body_glyphs)/2,153,auxiliary,art::body_glyphs,art::body_pixels,40,210);
-            if(i==selected && message) {
+            if(card==selected && message) {
                 text(out,message,left+94,119,rgb(255,174,100),art::body_glyphs,art::body_pixels,40,210);
             } else if(lines) {
                 for(unsigned row=0;row<4;++row) text(out,lines[row],left+94,119+row*22,rgb(192,197,203),art::body_glyphs,art::body_pixels,40,210);
@@ -288,18 +240,14 @@ void draw(uint16_t *out,int selected,float position,uint32_t elapsed,const char 
                 }
             }
         }
-    } else {
-        title(out,storage::count?"Unable to start":"No games yet",24,64);
-        text(out,message?message:"Copy .nes files into /system/roms",24,130,rgb(163,168,174));
-        text(out,"Console: usb disk",24,153,rgb(163,168,174));
     }
     const uint16_t orange=rgb(255,174,45), dim=rgb(81,44,14);
     for(int y=-5;y<=5;++y) {
         box(out,51+std::abs(y),225+y,2,1,selected>0?orange:dim);
-        box(out,258-std::abs(y),225+y,2,1,selected+1<static_cast<int>(storage::count)?orange:dim);
+        box(out,258-std::abs(y),225+y,2,1,selected<static_cast<int>(storage::count)?orange:dim);
     }
     box(out,80,225,160,2,dim);
-    const int thumb=storage::count>1?std::lround(position*144/(storage::count-1)):0;
+    const int thumb=storage::count?std::lround(position*144/storage::count):0;
     box(out,80+thumb,223,16,5,orange);
     if(elapsed<250) for(int i=0;i<320*240;++i) out[i]=blend(0,out[i],elapsed*255/250);
 }

@@ -16,6 +16,10 @@ add_executable(protocol_tests protocol_tests.cpp ${runtime}/protocol.cpp ${runti
 add_test(NAME protocol COMMAND protocol_tests)
 add_executable(input_tests input_tests.cpp ${runtime}/gamepad.cpp ${runtime}/input.cpp)
 add_test(NAME input COMMAND input_tests)
+add_executable(settings_tests settings_tests.cpp ${runtime}/settings.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp
+  ${runtime}/input.cpp ${runtime}/gamepad.cpp ${runtime}/controllers.cpp ${runtime}/protocol.cpp battery_stub.cpp)
+target_compile_definitions(settings_tests PRIVATE TUFTY_VERSION="${PROJECT_VERSION}")
+add_test(NAME settings COMMAND settings_tests)
 add_executable(bluetooth_manager_tests bluetooth_manager_tests.cpp ${runtime}/bluetooth_manager.cpp)
 add_test(NAME bluetooth_manager COMMAND bluetooth_manager_tests)
 set(btstack ${root}/lib/pico-sdk/lib/btstack)
@@ -46,7 +50,7 @@ add_executable(usb_disk_tests usb_disk_tests.cpp ${runtime}/usb.cpp ${runtime}/p
 target_include_directories(usb_disk_tests BEFORE PRIVATE ${CMAKE_CURRENT_LIST_DIR}/usb_stubs)
 add_test(NAME usb_disk COMMAND usb_disk_tests)
 add_executable(storage_tests storage_tests.cpp ${runtime}/storage.cpp ${runtime}/gamepad.cpp ${runtime}/fat_disk.cpp
-  ${runtime}/rom_store.cpp ${runtime}/menu.cpp ${runtime}/input.cpp
+  ${runtime}/rom_store.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp ${runtime}/input.cpp
   ${CMAKE_CURRENT_LIST_DIR}/battery_stub.cpp
   ${fatfs}/ff.c ${fatfs}/ffunicode.c
   ${root}/lib/littlefs/lfs.c ${root}/lib/littlefs/lfs_util.c

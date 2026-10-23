@@ -2,6 +2,7 @@
 #include "power_policy.hpp"
 #include "power_board.hpp"
 #include "storage.hpp"
+#include "configuration.hpp"
 #include "usb.hpp"
 #include "display.hpp"
 #include "ble.hpp"
@@ -17,6 +18,7 @@ IdleTimer timer;
 Request request;
 board::WakeInfo wake;
 const char *blocked="NONE";
+bool persistence_handled=false;
 uint32_t now() {return to_ms_since_boot(get_absolute_time());}
 const char *error_text(Error error) {
     switch(error) {
@@ -33,10 +35,9 @@ bool ready() {
     return !std::strcmp(blocked,"NONE");
 }
 bool save() {
-    if(!usb::dirty && !usb::save_requested) return true;
-    usb::save_requested=false;
-    if(!storage::save()) return false;
-    usb::dirty=false; return true;
+    if(persistence_handled) return true;
+    const auto result=configuration::save();
+    return result==configuration::SaveResult::Saved || result==configuration::SaveResult::Unchanged;
 }
 Error enter(uint32_t duration_ms) {
     usb::transition_notice("POWER SLEEP: ENTERING; wake restarts the firmware\r\n");
@@ -91,9 +92,14 @@ void idle(bool input) {
         activity(); queue(0,true);
     }
 }
-void process() {
+void sleep(uint32_t duration_ms) {queue(duration_ms);}
+uint32_t duration() {return request.duration();}
+void cancel() {request.cancel(); activity();}
+void process(bool handled) {
     if(!request.pending()) return;
+    persistence_handled=handled;
     request.run(hooks);
+    persistence_handled=false;
     activity();
     report();
 }
@@ -109,8 +115,7 @@ bool command(const char *line) {
         uint32_t value;
         if(!seconds(line+11,kMaxIdleSeconds,value)) std::printf("POWER IDLE: INVALID_DURATION seconds=0..86400\n");
         else {
-            storage::config.menu_sleep_seconds=value;
-            usb::dirty=storage::state_ready(); activity();
+            configuration::idle(value); activity();
             std::printf("POWER IDLE: seconds=%lu; use save to persist\n",static_cast<unsigned long>(value));
         }
     } else if(!std::strncmp(line,"power",5)) std::printf("power status | power sleep [seconds] | power idle 0..86400\n");

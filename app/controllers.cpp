@@ -2,12 +2,13 @@
 #include "ble.hpp"
 #include "usb.hpp"
 #include "storage.hpp"
+#include "configuration.hpp"
 #include <cstdio>
 #include <cstring>
 
 namespace controllers {
 namespace {
-void dirty() {usb::dirty=storage::state_ready();}
+void dirty() {configuration::sync();}
 void apply_bluetooth(bool reconnect=true) {
     const auto &cfg=storage::config;
     ble::configure({cfg.ble_enabled,cfg.ble_scan_uuid,cfg.ble,cfg.controller},reconnect);
@@ -104,7 +105,7 @@ bool command(const char *line) {
     } else if(!std::strcmp(line,"ble discover")) {
         std::printf("BLE: DISCOVERY %s\n",ble::discover()?"REQUESTED":"BUSY OR DISABLED");
     } else if(!std::strcmp(line,"ble discover stop")) {
-        ble::stop_discovery(); std::printf("BLE: AUTOMATIC CONNECTION RESUMED\n");
+        ble::stop_discovery(); std::printf("BLE: DISCOVERY STOP REQUESTED\n");
     } else if(!std::strcmp(line,"ble devices")) {
         ble::Candidate devices[16]; size_t count=ble::candidates(devices,16);
         for(size_t i=0;i<count;++i) {

@@ -24,7 +24,7 @@ public:
     const Configuration &configuration() const {return config_;}
     void configure(const Configuration &config,bool reconnect=true);
     bool discover(uint32_t duration_ms);
-    void stop_discovery();
+    void stop_discovery(); // Idempotent after connect(); never replaces a selected connection.
     bool connect(const Peer &peer);
     bool take_request();
     bool begin_scan(uint32_t now);

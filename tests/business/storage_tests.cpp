@@ -165,13 +165,13 @@ int main(int argc,char **argv) {
             began=Clock::now(); select_ready(int(i)); auto prepare_us=us(began);
             if(i) assert(menu::timing.cover_hits==hits_before+1);
             std::vector<uint16_t> frame(320*240+32,0x1234);
-            began=Clock::now(); menu::draw(frame.data(),int(i),float(i),300); auto draw_us=us(began);
+            began=Clock::now(); menu::draw(frame.data(),int(i)+1,float(i)+1,300); auto draw_us=us(began);
             if(const char *directory=std::getenv("TUFTY_PREVIEW_DIR")) {
                 std::ofstream out(std::string(directory)+"/"+std::to_string(i)+".ppm",std::ios::binary); out<<"P6\n320 240\n255\n";
                 for(size_t p=0;p<320*240;++p) {uint16_t v=frame[p]; char c[]={char((v>>11)*255/31),char(((v>>5)&63)*255/63),char((v&31)*255/31)}; out.write(c,3);}
             }
             began=Clock::now(); menu::next_page(); auto page_us=us(began);
-            for(int step=0;step<10;++step) menu::draw(frame.data(),int(i),float(i)-step/10.0f,300);
+            for(int step=0;step<10;++step) menu::draw(frame.data(),int(i)+1,float(i)+1-step/10.0f,300);
             for(size_t p=320*240;p<frame.size();++p) assert(frame[p]==0x1234);
             const uint32_t idle=uint32_t(i)*1000;
             assert(!menu::prefetch(idle,false));
@@ -202,18 +202,19 @@ int main(int argc,char **argv) {
                 menu::load_art();
                 menu::select(0);
                 std::vector<uint16_t> placeholder(320*240);
-                menu::draw(placeholder.data(),0,0,300);
+                menu::draw(placeholder.data(),1,1,300);
                 assert(placeholder[80*320+24]!=0x001f); // No cover read before first presentation.
                 assert(!menu::prefetch(0,false));
                 assert(!menu::prefetch(100,false)); // Neighbor must not overtake pending current cover.
                 assert(menu::load_current_cover());
                 assert(!menu::load_current_cover());
                 const auto samples=battery::test_refreshes;
-                menu::enter(10); menu::service(5009); assert(battery::test_refreshes==samples+1);
-                menu::service(5010); assert(battery::test_refreshes==samples+2);
+                menu::enter(10); menu::service(30009); assert(battery::test_refreshes==samples+1);
+                menu::service(30010); assert(battery::test_refreshes==samples+2);
+                menu::enter(30011); assert(battery::test_refreshes==samples+2);
                 std::vector<uint16_t> first(320*240+32,0x1234), frame(first);
                 const unsigned before=service_calls;
-                menu::draw(first.data(),0,0,300);
+                menu::draw(first.data(),1,1,300);
                 assert(first[0]==0); // No resource background: black fallback.
                 assert(service_calls==before); // draw must not perform storage I/O, ADC or layout service.
                 assert(battery::test_refreshes==samples+2);
@@ -221,26 +222,26 @@ int main(int argc,char **argv) {
                 assert(first[20*320+305]==rgb(100,100,100));
                 assert(first[18*320+274]==0); // Empty battery outline reveals background.
                 battery::test_value.valid=true; battery::test_value.percent=100;
-                menu::draw(frame.data(),0,0,300); assert(frame[18*320+274]==rgb(0,166,106));
+                menu::draw(frame.data(),1,1,300); assert(frame[18*320+274]==rgb(0,166,106));
                 battery::test_value.valid=false;
                 gamepad::Receiver serial,ble; input::hub.attach(input::Source::Serial,serial); input::hub.attach(input::Source::Ble,ble);
-                serial.update({},0); menu::draw(frame.data(),0,0,300); assert(frame[20*320+305]==rgb(65,145,255));
-                ble.update({},1); menu::draw(frame.data(),0,0,300); assert(frame[20*320+305]==rgb(65,145,255));
-                serial.release(); menu::draw(frame.data(),0,0,300); assert(frame[20*320+305]==rgb(70,220,100));
-                ble.release(); menu::draw(frame.data(),0,0,300); assert(frame[20*320+305]==rgb(100,100,100));
+                serial.update({},0); menu::draw(frame.data(),1,1,300); assert(frame[20*320+305]==rgb(65,145,255));
+                ble.update({},1); menu::draw(frame.data(),1,1,300); assert(frame[20*320+305]==rgb(65,145,255));
+                serial.release(); menu::draw(frame.data(),1,1,300); assert(frame[20*320+305]==rgb(70,220,100));
+                ble.release(); menu::draw(frame.data(),1,1,300); assert(frame[20*320+305]==rgb(100,100,100));
                 assert(first[80*320+24]==0x001f); // LE .565 cover is used at the new dimensions.
-                menu::draw(frame.data(),0,0,300,"ROM missing");
+                menu::draw(frame.data(),1,1,300,"ROM missing");
                 assert(frame[80*320+24]==0x001f); // Failure keeps the selected card and cover.
                 assert(frame!=first);
-                menu::next_page(); menu::draw(frame.data(),0,0,300);
+                menu::next_page(); menu::draw(frame.data(),1,1,300);
                 assert(frame!=first);
-                menu::previous_page(); menu::draw(frame.data(),0,0,300); assert(frame==first);
+                menu::previous_page(); menu::draw(frame.data(),1,1,300); assert(frame==first);
                 for(unsigned i=0;i<1024;++i) menu::next_page();
-                menu::draw(frame.data(),0,0,300); auto last=frame;
-                menu::next_page(); menu::draw(frame.data(),0,0,300); assert(frame==last);
+                menu::draw(frame.data(),1,1,300); auto last=frame;
+                menu::next_page(); menu::draw(frame.data(),1,1,300); assert(frame==last);
                 assert(frame!=first);
                 for(unsigned i=0;i<1024;++i) menu::previous_page();
-                menu::draw(frame.data(),0,0,300); assert(frame==first);
+                menu::draw(frame.data(),1,1,300); assert(frame==first);
                 for(size_t i=320*240;i<frame.size();++i) assert(frame[i]==0x1234);
                 assert(!menu::prefetch(0,false)); // Debounce selection before speculative I/O.
                 assert(!menu::prefetch(49,false));
@@ -258,15 +259,15 @@ int main(int argc,char **argv) {
                 const auto misses=menu::timing.cover_misses;
                 select_ready(1);
                 assert(menu::timing.cover_hits==hits+1 && menu::timing.cover_misses==misses);
-                menu::draw(frame.data(),1,0.1f,300);
+                menu::draw(frame.data(),2,1.1f,300);
                 assert(frame[80*320+5]==0x001f); // Outgoing card keeps its own cover while sliding.
-                menu::next_page(); menu::draw(frame.data(),1,1,300); last=frame;
-                menu::previous_page(); menu::draw(frame.data(),1,1,300); assert(frame==last);
-                select_ready(0); menu::draw(frame.data(),0,0,300); assert(frame==first);
-                menu::draw(frame.data(),0,0,1300);
+                menu::next_page(); menu::draw(frame.data(),2,2,300); last=frame;
+                menu::previous_page(); menu::draw(frame.data(),2,2,300); assert(frame==last);
+                select_ready(0); menu::draw(frame.data(),1,1,300); assert(frame==first);
+                menu::draw(frame.data(),1,1,1300);
                 for(unsigned y=153;y<211;++y) for(unsigned x=0;x<100;++x)
                     assert(frame[y*320+x]==first[y*320+x]); // Labels do not bob with the cover.
-                menu::draw(frame.data(),0,0,300);
+                menu::draw(frame.data(),1,1,300);
                 if(const char *preview=std::getenv("TUFTY_PREVIEW")) {
                     std::ofstream out(preview,std::ios::binary); out<<"P6\n320 240\n255\n";
                     for(size_t i=0;i<320*240;++i) {uint16_t v=frame[i]; char c[]={char((v>>11)*255/31),char(((v>>5)&63)*255/63),char((v&31)*255/31)}; out.write(c,3);}

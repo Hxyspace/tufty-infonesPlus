@@ -83,6 +83,27 @@ CC=clang CXX=clang++ TUFTY_TEST_BUILD_DIR="$PWD/build/host-clang" bash tools/tes
 
 主机测试用于验证可重复的核心与业务逻辑。LCD 传输、无线连接、Flash 写入和休眠唤醒等硬件行为需要在设备上验证；运行诊断见[使用指南](usage.md#console-命令)。
 
+## 设置图标
+
+自定义资源目录中的 `rom/settings/` 用于替换设置图标：
+
+| 文件 | 尺寸 |
+|---|---|
+| `header.565` | 30×20 |
+| `display.565`、`control.565`、`power.565`、`system.565`、`about.565` | 20×20 |
+| `settings.565` | 58×58 |
+
+图标为无头 RGB565 小端文件，纯洋红 `0xF81F` 表示透明。可将同尺寸 PNG 转换为 `.565`：
+
+```sh
+python3 -m pip install Pillow
+python3 tools/png_to_565.py settings.png -o resources-local/rom/settings/settings.565
+```
+
+转换不缩放图片；alpha 小于 128 的像素使用透明色，其余保留 RGB 颜色，不保存半透明度。此透明规则仅用于设置图标，游戏封面和背景按不透明图片显示。
+
+按[本地游戏和资源](#本地游戏和资源)配置资源目录后重新构建，刷入 `tufty-nes-with-romfs.uf2` 更新图标并保留游戏与配置；只刷程序不会更新 `/rom`。背景替换方法见[资源目录说明](../resources/README.md)。
+
 ## 独立构建核心
 
 只生成核心与宿主适配静态库：

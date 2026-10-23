@@ -10,6 +10,16 @@ static void send(Receiver &receiver,uint16_t keys=0,uint8_t hat=255,uint32_t now
     assert(receiver.receive(report,10,now));
 }
 int main() {
+    input::Hub home_edges;
+    home_edges.local(input::LocalHome);
+    assert(home_edges.home() && home_edges.take_home());
+    assert(!home_edges.take_home() && !home_edges.take_menu().pressed);
+    home_edges.clear_events();
+    home_edges.local(input::LocalHome|input::LocalB);
+    assert(!home_edges.take_home() && !home_edges.take_menu().pressed);
+    home_edges.local(0); assert(home_edges.neutral());
+    home_edges.local(input::LocalHome); assert(home_edges.take_home());
+    home_edges.clear_events(); assert(!home_edges.take_home());
     // Menu paging is independent of game selection; NES inputs remain intact.
     input::Hub navigation;
     const uint8_t mappings[][2]={{input::LocalA,input::Previous},{input::LocalC,input::Next},

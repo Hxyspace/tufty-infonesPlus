@@ -71,7 +71,7 @@ Tufty -> PC: #TGP:BYE:0123456789abcdef
 
 ## BLE HID
 
-Tufty 作为 Central，默认扫描 HID 服务 `0x1812` 并自动连接。支持实体 XTARK 手柄及采用相同布局的安卓发送端；不使用串口的 ID、序列号和会话握手。指定 MAC 或恢复自动连接的方法见 [使用指南](usage.md#连接设置)。
+Tufty 作为 Central，默认扫描 HID 服务 `0x1812` 并自动连接。支持实体 XTARK 手柄及采用相同布局的安卓发送端；不使用串口的 ID、序列号和会话握手。设备连接方法见 [使用指南](usage.md#ble-手柄)。
 
 读取 Report Map（`0x2A4B`），通过 Report Reference（`0x2908`）区分报告，并订阅 Input Report（`0x2A4D`）的 CCCD。游戏使用 **Report ID 4、10 字节 payload**，GATT 通知不带 ID 前缀；Consumer Report ID 3 不映射为 NES 输入。固件检查描述符布局后才读取。
 

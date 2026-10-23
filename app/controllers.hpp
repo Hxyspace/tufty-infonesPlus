@@ -2,7 +2,7 @@
 #include "input.hpp"
 #include "bluetooth_config.hpp"
 
-// Control API shared by the console and future settings UI; core0 only.
+// Control API shared by the console and Settings; core0 only.
 namespace controllers {
 struct Settings {
     bool serial_enabled,ble_enabled;

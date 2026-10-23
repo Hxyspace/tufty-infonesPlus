@@ -20,6 +20,9 @@ public:
     void local(uint8_t keys);
     uint8_t nes(bool swap_ab=false) const;
     bool home() const;
+    bool take_home(); // One application-exit event per press, independent of the neutral barrier.
+    bool neutral() const {return !local_keys && !remote_keys() && !home();}
+    uint32_t epoch() const {return menu.epoch;}
     Snapshot take_menu();
     void clear_events();
 private:
@@ -30,6 +33,7 @@ private:
     Snapshot menu;
     uint8_t local_pressed=0,local_released=0;
     bool barrier=false;
+    bool home_down=false,home_pressed=false;
     static void changed(void *context,gamepad::Receiver &receiver);
     void update();
     uint8_t remote_keys() const;

@@ -1,6 +1,7 @@
 #include "usb.hpp"
 #include "diagnostics.hpp"
 #include "storage.hpp"
+#include "configuration.hpp"
 #include "menu.hpp"
 #include "fat_disk.hpp"
 #include "display.hpp"
@@ -22,6 +23,12 @@
 namespace usb {
 tgp::Receiver pad;
 bool disk_requested=false,rescan_requested=false,save_requested=false,dirty=false;
+bool boot_requested=false;
+[[noreturn]] void reboot_bootsel() {
+    transition_notice("BOOTSEL: ENTERING; restarting into USB bootloader\r\n");
+    display::prepare_reboot(); tud_disconnect(); reset_usb_boot(0,0);
+    while(true) tight_loop_contents();
+}
 static bool mode=false, owned=false, failed=false, ejected=false, prevent=false, eject_complete=false;
 static uint32_t eject_at=0;
 static bool console_tx_pending=false;
@@ -217,19 +224,18 @@ static void command(const char *s) {
     } else if(!std::strcmp(s,"usb disk")) {
         disk_requested=true; std::printf("USB DISK: REQUESTED\n");
     } else if(!std::strcmp(s,"bootsel")) {
-        transition_notice("BOOTSEL: ENTERING; restarting into USB bootloader\r\n");
-        display::prepare_reboot(); tud_disconnect(); reset_usb_boot(0,0);
+        boot_requested=true;
     }
     else if(!std::strcmp(s,"rescan")) rescan_requested=true;
     else if(!std::strcmp(s,"save")) save_requested=true;
     else {
         unsigned value; char tail;
         if(std::sscanf(s,"brightness %u %c",&value,&tail)==1 && value>=1 && value<=100) {
-            storage::config.brightness=value; display::brightness(value); dirty=storage::state_ready();
+            configuration::brightness(value);
         } else if(std::sscanf(s,"padid %u %c",&value,&tail)==1 && value>=1 && value<=65535) {
             controllers::set_controller_id(uint16_t(value));
         } else if(std::sscanf(s,"swapab %u %c",&value,&tail)==1 && value<=1) {
-            storage::config.swap_ab=value; dirty=storage::state_ready();
+            configuration::swap(value);
         } else std::printf("Unknown command; type help\n");
     }
 }

@@ -3,6 +3,7 @@
 #include "power_board.hpp"
 #include "storage.hpp"
 #include "usb.hpp"
+#include "configuration.hpp"
 #include "pico/stdlib.h"
 #include <cassert>
 #include <string>
@@ -41,6 +42,7 @@ static void expect_sleep(uint32_t duration,const char *order) {
     events.clear();
 }
 int main() {
+    configuration::init();
     power::init(); power::menu(true);
     assert(!power::command("status"));
     for(const char *line:{"power sleep 0","power sleep -1","power sleep 4294968","power sleep 1.5"}) {
@@ -62,14 +64,14 @@ int main() {
     ++clock_ms; power::idle(false); expect_sleep(0,"LBDCUP");
     assert(power::command("power idle 0"));
     clock_ms+=1000000; power::idle(false); assert(!power::pending());
-    usb::dirty=false;
+    configuration::init();
     // Disk ownership/transition and asserted wake inputs reject without teardown.
     disk=true; power::command("power sleep"); assert(!power::pending());
     disk=false; usb::disk_requested=true; power::command("power sleep"); assert(!power::pending());
     usb::disk_requested=false; wake_idle=false; power::command("power sleep"); assert(!power::pending());
     wake_idle=true;
     // A save failure preserves pending changes and leaves display/USB running.
-    usb::dirty=true; save_ok=false; power::command("power sleep 10");
+    configuration::idle(1); save_ok=false; power::command("power sleep 10");
     assert(power::pending()); power::process(); assert(!power::pending());
     assert(usb::dirty && events=="S"); events.clear();
     save_ok=true; power::command("power sleep 10"); expect_sleep(10000,"SLBDCUP");

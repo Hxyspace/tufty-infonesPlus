@@ -55,10 +55,22 @@ int main() {
 
     // Selection survives the old link's asynchronous disconnection.
     assert(manager.connect(unknown) && manager.take_request());
+    manager.stop_discovery(); assert(!manager.take_request()); // Returning must not cancel the chosen peer.
     manager.retry(); assert(manager.begin_scan(8000));
     assert(manager.accepts(unknown,false,8000) && !manager.accepts(a.peer,true,8000));
     manager.retry(); assert(manager.begin_scan(9000));
     assert(!manager.accepts(unknown,true,9000) && manager.accepts(a.peer,false,9000));
+
+    // Cancelling a completed search resumes automatic connection, but leaving
+    // after Connect must preserve even a request not yet consumed by poll().
+    assert(manager.discover(1000) && manager.take_request() && manager.begin_scan(10000));
+    assert(manager.finish_discovery(11000));
+    manager.stop_discovery(); assert(manager.take_request());
+    assert(manager.begin_scan(11001) && manager.accepts(a.peer,false,11001));
+    manager.stop_discovery(); assert(!manager.take_request());
+    assert(manager.connect(unknown)); manager.stop_discovery();
+    assert(manager.take_request() && manager.begin_scan(12000));
+    assert(manager.accepts(unknown,false,12000) && !manager.accepts(a.peer,true,12000));
 
     // Changing preference must not tear down a healthy connection.
     config=manager.configuration(); config.policy.preferred=1;

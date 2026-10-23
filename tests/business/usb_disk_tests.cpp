@@ -160,6 +160,8 @@ int main() {
     console("lcd te\n");assert(te_changes==1 && !requested_te);
     console("lcd te on\n");assert(te_changes==2 && requested_te && !usb::dirty);
     console("lcd te on\n");assert(te_changes==3 && requested_te); // Explicit retry.
+    console("bootsel\n"); assert(usb::boot_requested); // Defer to the application's save gate.
+    usb::boot_requested=false;
     usb_test::console_connected=false;
     clock_us=last_poll=max_gap=polls=0;pumping=true;
     flashfat::disk.read=read; flashfat::disk.sector_size=4096;
