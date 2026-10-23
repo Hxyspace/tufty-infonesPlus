@@ -31,6 +31,8 @@ bash tools/build.sh
 bash tools/test.sh
 ```
 
+无需刷机的交互预览：`python3 tools/preview.py`。支持游戏库、Settings、USB Disk 界面和游戏画面，准备方式与按键见[主机预览](docs/preview.md)。
+
 工具要求、完整业务测试和离线构建说明见[构建指南](docs/building.md)。完整文件系统镜像附带 Chase、LAN Master、TobuNES、Cargo Shift 四款游戏及菜单资源，刷入后可直接体验；自定义镜像资源见 [resources](resources/README.md)。
 
 可使用 `python3 tools/build_game_index.py` 预览、排序并生成游戏索引；`--yes` 无交互生成，`--output deploy/roms` 创建新的设备包。将包内 ROM、`.565` 封面和 `games.idx` 复制到设备磁盘的 `roms/`，详见[索引与部署](docs/usage.md#游戏索引封面和背景)。
@@ -55,6 +57,7 @@ HID 手柄使用 Home，或摇杆回中并同时按住 L3+R3 1.5 秒返回菜单
 |---|---|
 | [使用指南](docs/usage.md) | 手柄、休眠、游戏与素材管理，以及开发调试命令 |
 | [构建指南](docs/building.md) | 工具链、固定依赖、固件打包与主机测试 |
+| [主机预览](docs/preview.md) | SDL2 客户端、自动输入/截图与 ROM 诊断 |
 | [固件架构](docs/architecture.md) | 目录职责、模块关系、双核协作和扩展边界 |
 | [核心契约](docs/core-contract.md) | 宿主 API、卡带加载、支持范围与资源生命周期 |
 | [存储与升级](docs/storage.md) | Flash 分区、镜像选择、磁盘访问和升级注意事项 |

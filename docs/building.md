@@ -10,6 +10,7 @@
 | Tufty2350 固件 | 上述工具，以及 `arm-none-eabi-gcc` / `arm-none-eabi-g++` |
 | 三种镜像打包及完整文件系统测试 | `mkfs.fat`（dosfstools）、`mmd` / `mcopy`（mtools） |
 | PC 手柄发送器 | Python 3、pyserial，见[使用指南](usage.md#pc-手柄) |
+| 主机交互预览 | 主机工具、SDL2 2.0.18+ 开发包及资源镜像工具，见[主机预览](preview.md) |
 | 游戏索引工具 | Python 3.10+；交互排序需要 curses 终端，`--yes` 无需 curses |
 
 源码使用 C11 / C++17。主机测试默认开启 AddressSanitizer 和 UndefinedBehaviorSanitizer。设备固件使用 Release 配置，主机与设备使用不同构建目录。
@@ -82,6 +83,8 @@ CC=clang CXX=clang++ TUFTY_TEST_BUILD_DIR="$PWD/build/host-clang" bash tools/tes
 ```
 
 主机测试用于验证可重复的核心与业务逻辑。LCD 传输、无线连接、Flash 写入和休眠唤醒等硬件行为需要在设备上验证；运行诊断见[使用指南](usage.md#console-命令)。
+
+`python3 tools/preview.py` 构建独立的 SDL2 游戏库 / Settings / NES 预览客户端。其 `TUFTY_HOST_PREVIEW` CMake 选项默认关闭，普通测试和固件构建无需 SDL。自动输入、截图及无 SDL 的 `rom_probe` 用法见[主机预览](preview.md)。
 
 ## 设置图标
 

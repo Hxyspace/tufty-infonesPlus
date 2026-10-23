@@ -30,6 +30,7 @@ flowchart TD
 ├── presentation/        帧发布、颜色转换与帧时钟
 ├── platform/tufty2350/   LCD、内存、电源和无线平台适配
 ├── app/                  游戏库、Settings、输入、USB、BLE、存储和电源策略
+├── host/                 SDL2 主机入口、模拟外设与内存资源镜像
 ├── board/                Tufty2350 板级定义
 ├── config/               USB、BTstack 等编译配置
 ├── cmake/                设备工具链接入、固件目标及链接边界
@@ -50,8 +51,11 @@ flowchart TD
 | `presentation` | NES 行颜色编码、完整帧发布、显示所有权和逻辑帧节奏 |
 | `platform/tufty2350` | LCD 传输、内存分配、电源硬件、ADC 电量测量和无线 SDK 适配 |
 | `nes` / `app` | 组合上述模块，构建 `tufty-nes-flash` 设备固件 |
+| `tufty_preview` / `host` | 复用实际 UI、输入、存储和核心，以 SDL2 和模拟外设提供独立主机预览 |
 
 外部库提供 SDK、无线协议栈、文件系统和 JSON，版本由 `deps.lock.json` 固定，准备方式见[构建指南](building.md#依赖管理)。
+
+主机预览使用单线程 SDL 入口，资源镜像映射到固件存储代码所需的地址，复用 FAT / LittleFS / RM1 及索引、配置实现；不模拟 RP2350 指令或双核 LCD 驱动。State 保存到独立主机副本。菜单绘制、设置交互、输入仲裁和核心直接编译原源码；主机入口负责导航调度及游戏的同步运行，修改应用生命周期时需同步核对两个入口及集成测试。操作及硬件模拟边界见[主机预览](preview.md)。
 
 ## 执行模型与资源所有权
 
