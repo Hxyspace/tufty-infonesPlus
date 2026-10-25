@@ -2,6 +2,8 @@
 #include "fat_disk.hpp"
 #include "rom_store.hpp"
 #include "display.hpp"
+#include "disk_display.hpp"
+#include "hardware/sync.h"
 #include "bluetooth_config.hpp"
 #include "ff.h"
 #include "lfs.h"
@@ -48,6 +50,14 @@ static void __no_inline_not_in_flash_func(write_flash)(void *ctx) {
     if(op.data) flash_range_program(op.at,op.data,op.bytes);
 }
 static bool execute(Operation &op) {
+    if(disk_display::active()) {
+        // Only disk startup can acknowledge an IRQ-disabled SRAM-only core1.
+        // Normal mode retains the SDK's multicore Flash lockout.
+        const auto irq=save_and_disable_interrupts();
+        write_flash(&op);
+        restore_interrupts(irq);
+        return true;
+    }
     return flash_safe_execute(write_flash,&op,1000)==PICO_OK;
 }
 static bool state_range(lfs_block_t block,lfs_off_t at,lfs_size_t bytes) {
@@ -151,12 +161,16 @@ static void load_config() {
     config.ble_scan_uuid=scan_uuid;
     cJSON_Delete(root);
 }
-void init(bool use_state) {
+bool init_disk() {
     flashfat::disk.read=read_system;
     if(flashfat::disk.probe()) {
         flashfat::disk.runtime_owned=true;
         fat_mounted=f_mount(&fat,"0:",1)==FR_OK;
     }
+    return fat_mounted;
+}
+void init(bool use_state) {
+    init_disk();
     rom.mount(reinterpret_cast<const void *>(kXipBase+kRom.offset),kRom.bytes);
     if(use_state) {
         lc.read=state_read; lc.prog=state_prog; lc.erase=state_erase; lc.sync=state_sync;
@@ -387,7 +401,7 @@ bool unmount_system() {
     fat_mounted=false; flashfat::disk.runtime_owned=false; return true;
 }
 bool replace_system_sector(uint32_t at,const uint8_t *data) {
-    if(!display::paused() || fat_mounted || flashfat::disk.runtime_owned || at%4096 || !kSystem.contains(at,4096)) return false;
+    if((!disk_display::active() && !display::paused()) || fat_mounted || flashfat::disk.runtime_owned || at%4096 || !kSystem.contains(at,4096)) return false;
     Operation op{kSystem.offset+at,4096,data,true};
     return execute(op) && !std::memcmp(reinterpret_cast<const void *>(kXipBase+op.at),data,4096);
 }

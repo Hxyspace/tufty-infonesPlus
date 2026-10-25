@@ -1,6 +1,7 @@
 #include "pico/stdlib.h"
 #include "hardware/psram.h"
 #include "display.hpp"
+#include "disk_display.hpp"
 #include "storage.hpp"
 #include "usb.hpp"
 #include "menu.hpp"
@@ -120,15 +121,19 @@ int main() {
     bool disk=usb::consume_disk_request();
     disk=power::reset_startup() || disk;
     usb::init(disk); usb_ready=true;
+    if(disk) {
+        // No library, game display, controllers, BLE or State filesystem in
+        // this boot. USB tasks start only after core1 is safely running in RAM.
+        disk_display::start(storage::config.brightness);
+        usb::acquire_disk(storage::init_disk());
+        usb::run_disk();
+    }
     if(psram_get_size()<8*1024*1024) panic("8 MiB PSRAM required");
     display::start();
-    storage::init(!disk);
+    storage::init();
     configuration::init();
     controllers::init();
     display::brightness(storage::config.brightness);
-    if(disk) {
-        usb::acquire_disk(storage::mounted()); usb::run_disk();
-    }
     ble::init();
     ble_ready=true;
     storage::scan(); menu::load_art();

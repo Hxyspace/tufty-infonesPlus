@@ -6,6 +6,7 @@
 #include "platform/tufty2350/battery.hpp"
 #include "cJSON.h"
 #include "lfs.h"
+#include "hardware/sync.h"
 #include <sys/mman.h>
 #include <cassert>
 #include <cstring>
@@ -33,13 +34,19 @@ static bool stopped=false;
 bool paused() {return stopped;}
 void pause(bool enabled) {stopped=enabled;}
 }
+namespace disk_display {
+bool running=false;
+bool active() {return running;}
+}
 void flash_range_erase(uint32_t at,size_t bytes) {
+    if(disk_display::active())assert(flash_test::irq_disabled);
     assert(at%4096==0 && bytes%4096==0);
     assert((at>=kState.offset && kState.contains(at-kState.offset,bytes)) ||
            (at>=kSystem.offset && kSystem.contains(at-kSystem.offset,bytes)));
     std::memset(flash+at,255,bytes);
 }
 void flash_range_program(uint32_t at,const uint8_t *data,size_t bytes) {
+    if(disk_display::active())assert(flash_test::irq_disabled);
     assert(at%256==0 && bytes%256==0 && at>=kSystem.offset && at+bytes<=16*1024*1024);
     for(size_t i=0;i<bytes;++i) {assert((flash[at+i]&data[i])==data[i]); flash[at+i]=data[i];}
 }
@@ -347,6 +354,14 @@ int main(int argc,char **argv) {
     assert(!storage::replace_system_sector(kSystem.bytes,staging));
     assert(!storage::replace_system_sector(1,staging));
     assert(storage::replace_system_sector(kSystem.bytes-4096,staging));
+    display::pause(false);
+    assert(!storage::replace_system_sector(kSystem.bytes-4096,staging));
+    disk_display::running=true; // Core1 has acknowledged the SRAM-only loop.
+    staging[0]=0xa5;
+    assert(storage::replace_system_sector(kSystem.bytes-4096,staging));
+    assert(!display::paused() && !flash_test::irq_disabled);
+    assert(flash[kSystem.offset+kSystem.bytes-4096]==0xa5);
+    disk_display::running=false;
     assert(std::memcmp(flash+kSystem.offset,original.data()+kSystem.offset,kSystem.bytes-4096)==0);
     std::memset(flash+kSystem.offset+11,0,2);
     assert(!flashfat::disk.probe()); // Invalid BPB does not trigger a format.

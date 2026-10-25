@@ -13,7 +13,8 @@ endif()
 
 set(fatfs "${CMAKE_CURRENT_SOURCE_DIR}/lib/fatfs/source")
 add_executable(nes
-  app/main.cpp presentation/display.cpp platform/tufty2350/panel.cpp platform/tufty2350/core_memory.cpp app/menu.cpp app/storage.cpp app/fat_disk.cpp
+  app/main.cpp presentation/display.cpp presentation/disk_display.cpp presentation/disk_renderer.cpp
+  platform/tufty2350/panel.cpp platform/tufty2350/core_memory.cpp app/menu.cpp app/storage.cpp app/fat_disk.cpp
   app/rom_store.cpp app/usb.cpp app/descriptors.cpp app/protocol.cpp app/settings.cpp app/ui.cpp
   app/power.cpp platform/tufty2350/power_board.cpp platform/tufty2350/power_reset.cpp platform/tufty2350/battery.cpp
   app/disk_ui.cpp app/ble.cpp app/ble_gamepad.cpp app/ble_tgp.cpp app/bluetooth_manager.cpp
@@ -34,7 +35,8 @@ target_link_libraries(nes PRIVATE nes_host tufty_version pico_stdlib pico_multic
   hardware_flash hardware_powman hardware_adc tinyusb_device
   tufty_radio_poll pico_btstack_ble pico_btstack_cyw43)
 target_compile_options(nes PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_link_options(nes PRIVATE "LINKER:-T,${CMAKE_CURRENT_SOURCE_DIR}/cmake/firmware_limit.ld"
+pico_add_linker_script_override_path(nes "${CMAKE_CURRENT_SOURCE_DIR}/cmake/disk" GLOB_FILES)
+target_link_options(nes PRIVATE "LINKER:--emit-relocs" "LINKER:-T,${CMAKE_CURRENT_SOURCE_DIR}/cmake/firmware_limit.ld"
   "LINKER:--print-memory-usage" "LINKER:--wrap=btstack_cyw43_init"
   "LINKER:--wrap=cyw43_await_background_or_timeout_us"
   "LINKER:--wrap=cyw43_delay_ms" "LINKER:--wrap=cyw43_delay_us")
@@ -47,3 +49,7 @@ pico_set_program_version(nes "${TUFTY_VERSION}")
 set_target_properties(nes PROPERTIES OUTPUT_NAME tufty-nes-flash)
 # Preserve the SDK/native tagged compatibility block behavior; check separately.
 pico_add_extra_outputs(nes)
+add_custom_command(TARGET nes POST_BUILD
+  COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_disk_ram.py" "$<TARGET_FILE:nes>"
+  VERBATIM)
+set_property(TARGET nes APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_disk_ram.py")

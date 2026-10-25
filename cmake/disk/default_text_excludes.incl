@@ -1,0 +1,2 @@
+/* Preserve SDK 2.3.0 exclusions and reserve the complete disk call graph. */
+*(EXCLUDE_FILE(*disk_ui.cpp.o *disk_renderer.cpp.o *libgcc.a: *libc.a: *lib*_a-mem*.o *libm.a:) .text*)

@@ -31,6 +31,9 @@ const char *title(size_t index);
 const char *description(size_t index);
 bool has_cover(size_t index);
 void init(bool state=true);
+// Disk boot only: probe/mount the system volume for validation, without ROMFS
+// or State initialization. acquire_disk() then unmounts it for host ownership.
+bool init_disk();
 bool mounted();
 // Maintenance scans may bypass an otherwise valid but outdated index.
 void scan(bool directory_only=false);

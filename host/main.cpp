@@ -217,9 +217,9 @@ void loop(bool open_settings,bool open_disk) {
         const uint32_t now=micros()/1000;
         if(disk_mode) {
             input::hub.take_menu(); input::hub.take_home();
-            // The device freezes the transfer frame while MSC is busy. Status
-            // changes are presented once; idle/error animations run at ~30 Hz.
-            if(disk_redraw || (disk_state!=disk_ui::State::Transferring && now-disk_draw_at>=33)) {
+            // Match the independent device renderer: every state animates at
+            // about 30 Hz, including transfers.
+            if(disk_redraw || now-disk_draw_at>=33) {
                 disk_ui::draw(screen.data(),disk_state,now-disk_draw_at);
                 show(screen.data()); disk_draw_at=now; disk_redraw=false;
             }

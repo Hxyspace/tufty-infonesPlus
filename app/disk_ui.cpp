@@ -43,45 +43,34 @@ void center(uint16_t *out,const char *label,int y,uint16_t color,const disk_art:
     text(out,label,(kWidth-text_width(label,font))/2,y,color,font);
 }
 }
-bool draw(uint16_t *out,State state,uint32_t elapsed_ms,Service service) {
+void draw(uint16_t *out,State state,uint32_t elapsed_ms) {
     if(!initialized) {for(auto &star:stars) star=spawn(); initialized=true;}
-    // PSRAM rendering must not hold up the next MSC data/status transaction.
-    for(int y=0;y<240;y+=8) {
-        std::fill(out+y*320,out+(y+8)*320,0);
-        if(service && !service()) return false;
-    }
+    std::fill(out,out+320*240,0);
     bool transferring=state==State::Transferring;
     // Match the original 160x120 screen, doubled to panel pixels. Limit catch-up
-    // after long Flash operations so a single frame cannot empty the starfield.
+    // after a delayed frame so a single update cannot empty the starfield.
     float movement=std::min<uint32_t>(elapsed_ms,100)/(transferring?500.0f:1000.0f);
-    unsigned star_count=0;
     for(auto &star:stars) {
         star.x+=star.x*movement; star.y+=star.y*movement;
         if(star.x < -80 || star.x > 80 || star.y < -60 || star.y > 60) star=spawn();
         else if(star.age<50) ++star.age;
         int brightness=star.age*(transferring?255:100)/50;
         if(int(star.x) && int(star.y)) pixel(out,int(star.x+80),int(star.y+60),rgb(brightness,brightness,brightness));
-        if(service && ++star_count%32==0 && !service()) return false;
     }
     constexpr uint16_t white=0xffff,orange=rgb(255,165,0),faded=rgb(184,192,200);
     center(out,"USB Disk Mode",5,white,disk_art::absolute);
     text(out,"1:",10,23,white,disk_art::absolute);
     text(out,"2:",10,45,white,disk_art::absolute);
     text(out,"3:",10,67,white,disk_art::absolute);
-    if(service && !service()) return false;
     bool valid=state!=State::Unavailable && state!=State::Failed;
     text(out,valid?"Your badge is now":"USB disk is not",30,24,orange,disk_art::ark);
     text(out,valid?"mounted as a disk":"available",30,32,orange,disk_art::ark);
-    if(service && !service()) return false;
     text(out,valid?"Copy NES games":"Keep your files;",30,46,orange,disk_art::ark);
     text(out,valid?"into roms/":"do not format",30,54,orange,disk_art::ark);
-    if(service && !service()) return false;
     text(out,valid?"Eject the disk to":"Reset to return",30,68,orange,disk_art::ark);
     text(out,valid?"return to games":"to games",30,76,orange,disk_art::ark);
-    if(service && !service()) return false;
     const char *status=transferring?"Transferring data!":state==State::Unavailable?"Invalid FAT volume":
         state==State::Failed?"Disk I/O error":state==State::Ejected?"Returning to games...":"Waiting for data";
     center(out,status,102,transferring?white:faded,disk_art::ark);
-    return true;
 }
 }

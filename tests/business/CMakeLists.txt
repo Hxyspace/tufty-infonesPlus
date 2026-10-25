@@ -50,6 +50,7 @@ add_executable(usb_disk_tests usb_disk_tests.cpp ${runtime}/usb.cpp ${runtime}/p
 target_link_libraries(usb_disk_tests PRIVATE tufty_version)
 target_include_directories(usb_disk_tests BEFORE PRIVATE ${CMAKE_CURRENT_LIST_DIR}/usb_stubs)
 add_test(NAME usb_disk COMMAND usb_disk_tests)
+add_test(NAME usb_disk_eject COMMAND usb_disk_tests eject)
 add_executable(storage_tests storage_tests.cpp ${runtime}/storage.cpp ${runtime}/gamepad.cpp ${runtime}/fat_disk.cpp
   ${runtime}/rom_store.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp ${runtime}/input.cpp
   ${CMAKE_CURRENT_LIST_DIR}/battery_stub.cpp

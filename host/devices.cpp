@@ -48,6 +48,8 @@ bool refresh(uint32_t now) {preview::battery_value.timestamp_ms=now; return true
 const Reading &reading() {return preview::battery_value;}
 }
 namespace power {void activity() {}}
+// Native preview has no second core or hardware Flash write window.
+namespace disk_display {bool active() {return false;}}
 namespace display {
 namespace {bool held=false,te=true; uint8_t light=80;}
 void pause(bool value) {held=value;}

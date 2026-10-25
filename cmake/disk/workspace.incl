@@ -1,0 +1,40 @@
+/* A boot-mode overlay: disk instructions/data and NES frames share SRAM.
+ * Only disk startup copies this image; normal startup clears the game frames.
+ * Included AFTER the RAM vector table, outside the SDK's .data/.bss startup
+ * copy/clear ranges. The vector table must retain its hardware alignment.
+ */
+SECTIONS {
+    .disk_image : ALIGN(4) {
+        __disk_image_start = .;
+        *disk_ui.cpp.o(.text* .rodata* .data*)
+        *disk_renderer.cpp.o(.text* .rodata* .data*)
+        *(.disk_code*)
+        . = ALIGN(4);
+        __disk_image_end = .;
+    } > RAM AT> FLASH
+    __disk_image_load = LOADADDR(.disk_image);
+    .disk_bss (NOLOAD) : ALIGN(4) {
+        __disk_bss_start = .;
+        *disk_ui.cpp.o(.bss*)
+        *disk_renderer.cpp.o(.bss*)
+        *(.disk_scratch*)
+        /* These buffers are only used after the disk boot has cleared this
+         * region. Keep _mscd_itf outside: TinyUSB clears it on every USB reset,
+         * including normal boots where this region contains NES frames.
+         */
+        __disk_usb_buffers_start = .;
+        *usb.cpp.o(.bss._ZZ18tud_msc_write10_cbE7staging)
+        *msc_device.c.o(.bss._mscd_epbuf)
+        __disk_usb_buffers_end = .;
+        . = ALIGN(4);
+        __disk_bss_end = .;
+    } > RAM
+    .game_workspace ADDR(.disk_image) (NOLOAD) : {
+        KEEP(*(.game_workspace))
+        . = ALIGN(4);
+    } > RAM
+    ASSERT(SIZEOF(.disk_image) + SIZEOF(.disk_bss) <= SIZEOF(.game_workspace),
+           "Disk SRAM image exceeds the game frame workspace")
+    ASSERT(__disk_usb_buffers_end - __disk_usb_buffers_start == 8192,
+           "Revisit disk-only USB buffer sections or sizes")
+}

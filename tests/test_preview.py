@@ -228,6 +228,13 @@ def main():
 79 shot disk-return.bmp
 81 quit
 """, settings=True)
+    run("disk-write-animation", """
+1 disk-state transferring
+3 shot disk-write-a.bmp
+20 shot disk-write-b.bmp
+21 quit
+""", disk=True)
+    assert (work / "disk-write-a.bmp").read_bytes() != (work / "disk-write-b.bmp").read_bytes()
     # A simulated reboot must honor "continue without saving": keep the
     # previously saved 95%, rather than silently persisting the new 100%.
     run("disk-save-bypass", disk_entry.replace("41 press W", "40 save-failure on\n41 press W") + """

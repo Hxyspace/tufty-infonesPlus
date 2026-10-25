@@ -1,6 +1,9 @@
 // PIO transport and panel setup adapted from tufty2350-native's MIT driver.
 // See licenses/PIMORONI-LICENSE.
 #include "display.hpp"
+#ifdef TUFTY2350
+#include "disk_display.hpp"
+#endif
 #include "frame_mailbox.hpp"
 #include "panel.hpp"
 #include "pixels.hpp"
@@ -13,10 +16,14 @@
 void tufty_service();
 namespace display {
 static uint16_t __uninitialized_psram("menu") menus[2][width*height];
-struct GamePacket { presentation::GameFrame pixels; uint32_t sequence=0,ready_at=0; };
+struct GamePacket { presentation::GameFrame pixels; uint32_t sequence,ready_at; };
 // Keep all hot production AND consumption in SRAM. The producer publishes a
 // complete slot, never copies a live working frame into external memory.
+#ifdef TUFTY2350
+static GamePacket games[3] __attribute__((section(".game_workspace")));
+#else
 static GamePacket games[3];
+#endif
 static presentation::FrameMailbox mailbox;
 static std::atomic<bool> game_active{false};
 static uint32_t published=0,replaced=0; // Producer/core0 only.
@@ -24,7 +31,7 @@ uint16_t *menu_buffers[2]={menus[0],menus[1]};
 uint16_t palette[512]{};
 // UI work has a sequence independent of the alternating buffer index.
 static std::atomic<uint32_t> requested{1},completed{0},menu_index{0};
-static std::atomic<bool> ready{false},pause_request{false},pause_ack{false},disk_hold{false};
+static std::atomic<bool> ready{false},pause_request{false},pause_ack{false};
 static std::atomic<uint32_t> sent{0},discarded{0},game_sent{0},last_us{0},worst_us{0},te_timeouts{0};
 static std::atomic<uint32_t> transfer_us{0},wait_us{0},wait_max{0},wait_total{0};
 static std::atomic<uint32_t> age_us{0},age_max{0},age_total{0},interval_us{0},interval_max{0};
@@ -116,14 +123,13 @@ static void core(){
         }
         if(!game_active.load(std::memory_order_acquire))discard_game();
         const auto ui=requested.load(std::memory_order_acquire);
-        if(!disk_hold.load(std::memory_order_acquire) &&
-           (completed.load(std::memory_order_relaxed)!=ui || mailbox.pending())){
+        if(completed.load(std::memory_order_relaxed)!=ui || mailbox.pending()){
             const auto started=time_us_32();
             tufty::panel::wait_for_frame();
             const uint32_t waited=time_us_32()-started;
             // A request received during TE wait must be acknowledged BEFORE
             // starting a transfer. No buffer has been claimed at this point.
-            if(pause_request.load(std::memory_order_acquire) || disk_hold.load(std::memory_order_acquire))continue;
+            if(pause_request.load(std::memory_order_acquire))continue;
             const auto next_ui=requested.load(std::memory_order_acquire);
             if(completed.load(std::memory_order_relaxed)!=next_ui){
                 discard_game();
@@ -139,6 +145,7 @@ static void core(){
     }
 }
 void start(){
+    std::memset(games,0,sizeof games);
     for(unsigned i=0;i<512;++i)palette[i]=presentation::token_rgb565(i);
     std::memset(menus,0,sizeof menus);
     multicore_launch_core1(core);
@@ -150,15 +157,11 @@ static uint32_t request_menu(unsigned index){
 }
 void present_menu(unsigned index){
     // Do not overwrite a pending UI request/index (including startup frame).
-    while(!disk_ready()){tufty_service();tight_loop_contents();}
+    while(completed.load(std::memory_order_acquire)!=requested.load(std::memory_order_acquire)){
+        tufty_service();tight_loop_contents();
+    }
     const auto sequence=request_menu(index);
     while(completed.load(std::memory_order_acquire)!=sequence){tufty_service();tight_loop_contents();}
-    if(!visible){visible=true;tufty::panel::brightness(desired_brightness);}
-}
-bool disk_ready(){return completed.load(std::memory_order_acquire)==requested.load(std::memory_order_acquire);}
-void hold_disk(bool enabled){disk_hold.store(enabled,std::memory_order_release);}
-void present_disk(unsigned index){
-    request_menu(index); // Caller checked disk_ready() and owns this buffer.
     if(!visible){visible=true;tufty::panel::brightness(desired_brightness);}
 }
 presentation::GameFrame &game_buffer(){return games[mailbox.writing()].pixels;}
@@ -189,6 +192,9 @@ Stats stats(){
     return s;
 }
 void prepare_reboot(){
+#ifdef TUFTY2350
+    if(disk_display::active()){disk_display::stop();tufty::panel::shutdown();return;}
+#endif
     visible=false;
     if(!ready.load(std::memory_order_acquire)){early_init();return;}
     pause(true);tufty::panel::shutdown();

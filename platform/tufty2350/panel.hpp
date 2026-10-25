@@ -17,6 +17,8 @@ void begin_frame(bool sync=true);
 // the caller can prepare its other column while the previous column drains.
 void send_column(const std::uint16_t *data,unsigned pixels);
 void end_frame();
+// Fixed-clock disk mode only: SRAM code/data, polling TE, no IRQ dependency.
+void disk_frame(const std::uint16_t *pixels);
 void shutdown();
 SyncStatus sync_status();
 }

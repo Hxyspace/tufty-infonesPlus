@@ -70,6 +70,42 @@ void send_column(const uint16_t *p,unsigned count){
     idle();dma_channel_set_trans_count(dma,count*2,false);dma_channel_set_read_addr(dma,p,true);
 }
 void end_frame(){idle();gpio_put(TFT_CS_PIN,1);}
+void __attribute__((section(".disk_code"),noinline)) disk_frame(const uint16_t *pixels){
+    // Keep the whole transport in one audited RAM function. Do not call the
+    // general panel helpers: their SDK/clock/IRQ paths may reside in Flash.
+    alignas(4) static uint16_t columns[2][240] __attribute__((section(".disk_scratch")));
+    static bool te=true;
+    const auto drain=[&]{
+        while(dma_hw->ch[dma].ctrl_trig&DMA_CH0_CTRL_TRIG_BUSY_BITS) __asm volatile("nop");
+        const uint32_t stall=1u<<(sm+PIO_FDEBUG_TXSTALL_LSB);
+        pio->fdebug=stall;
+        while(!(pio->fdebug&stall)) __asm volatile("nop");
+    };
+    drain();
+    if(te){
+        const auto started=time_us_32();
+        bool low=!gpio_get(TFT_TE_PIN);
+        while(true){
+            const bool high=gpio_get(TFT_TE_PIN);
+            if(!high)low=true;
+            else if(low)break;
+            if(time_us_32()-started>=kTeTimeoutUs){te=false;break;}
+        }
+    }
+    uint8_t cmd=0x2c;
+    gpio_put(TFT_DC_PIN,0);gpio_put(TFT_CS_PIN,0);
+    dma_hw->ch[dma].transfer_count=1;
+    dma_hw->ch[dma].al3_read_addr_trig=reinterpret_cast<uintptr_t>(&cmd);
+    drain();gpio_put(TFT_DC_PIN,1);
+    for(unsigned x=0;x<320;++x){
+        auto *column=columns[x&1];
+        for(unsigned y=0;y<240;++y)column[y]=__builtin_bswap16(pixels[y*320+x]);
+        drain();
+        dma_hw->ch[dma].transfer_count=480;
+        dma_hw->ch[dma].al3_read_addr_trig=reinterpret_cast<uintptr_t>(column);
+    }
+    drain();gpio_put(TFT_CS_PIN,1);
+}
 void shutdown(){gpio_set_irq_enabled(TFT_TE_PIN,kTeEdges,false);brightness(0);command(0x28);sleep_ms(20);pio_sm_set_enabled(pio,sm,false);}
 SyncStatus sync_status(){return timing.status();}
 void init() {

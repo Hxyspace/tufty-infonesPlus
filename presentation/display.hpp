@@ -8,11 +8,6 @@ extern uint16_t palette[512];
 void early_init();
 void start();
 void present_menu(unsigned index);
-// Alternate buffers only after the previous frame completes. Animation frames
-// publish asynchronously; status transitions finish once before holding frames.
-bool disk_ready();
-void present_disk(unsigned index);
-void hold_disk(bool enabled);
 // core0 owns this writable SRAM slot until present_game() publishes it.
 // The returned next slot may immediately be written; no full-frame copy occurs.
 presentation::GameFrame &game_buffer();

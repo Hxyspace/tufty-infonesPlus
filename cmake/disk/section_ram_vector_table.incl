@@ -1,0 +1,14 @@
+/* Preserve the SDK vector table at the start of SRAM. Placing the mode
+ * workspace before this table would break VTOR alignment on both cores.
+ * RP2350 uses 68 vector entries, requiring a 512-byte aligned base.
+ */
+SECTIONS {
+    .ram_vector_table (NOLOAD) : ALIGN(512) {
+        *(.ram_vector_table)
+    } > RAM
+    ASSERT((ADDR(.ram_vector_table) & 511) == 0,
+           "RP2350 RAM vector table must be 512-byte aligned")
+    ASSERT(SIZEOF(.ram_vector_table) <= 512,
+           "Revisit RAM vector table alignment for a larger vector table")
+}
+INCLUDE "workspace.incl"

@@ -10,6 +10,7 @@
 #include "ble.hpp"
 #include "controllers.hpp"
 #include "disk_ui.hpp"
+#include "disk_display.hpp"
 #include "disk_activity.hpp"
 #include "memory_stats.hpp"
 #include "tufty_version.hpp"
@@ -34,54 +35,17 @@ static bool mode=false, owned=false, failed=false, ejected=false, prevent=false,
 static uint32_t eject_at=0;
 static bool console_tx_pending=false;
 constexpr uint32_t kDiskMagic=0x4e45534d;
-static DiskActivity disk_activity;
 static DiskActivity write_activity;
-static bool disk_write_paused=false;
-static bool disk_burst_active=false;
-static unsigned disk_back=1;
-static disk_ui::State disk_drawn=disk_ui::State::Unavailable;
-static bool disk_first=true;
 static void disk_lights(bool enabled) {
     static bool lit=false;
     if(lit==enabled) return;
     lit=enabled;
     for(uint pin : {uint(BW_LED_0),uint(BW_LED_1),uint(BW_LED_2),uint(BW_LED_3)}) gpio_put(pin,enabled);
 }
-static void release_disk_display() {
-    display::hold_disk(false);
-    if(disk_write_paused) {
-        display::pause(false);
-        disk_write_paused=false;
-    }
-}
-static void transfer_started(bool writing) {
-    uint32_t now=to_ms_since_boot(get_absolute_time());
-    disk_activity.begin(now);
-    if(!writing) {
-        // Reads suppress animation only; they never change the write indicator.
-        display::hold_disk(true);
-        return;
-    }
-    write_activity.begin(now);
+static void write_started() {
+    write_activity.begin(to_ms_since_boot(get_absolute_time()));
     disk_lights(true);
-    if(!disk_burst_active) {
-        disk_burst_active=true;
-        // Show the mode change once per write burst, before programming data.
-        // This also works when an operation interrupts an idle frame's render:
-        // that unfinished frame is abandoned by service_disk_frame(). Do not
-        // re-enter TinyUSB from its own MSC callback while publishing this frame.
-        release_disk_display();
-        while(!display::disk_ready()) tight_loop_contents();
-        disk_ui::draw(display::menu_buffers[disk_back],disk_ui::State::Transferring,0);
-        display::present_disk(disk_back); disk_back^=1;
-        while(!display::disk_ready()) tight_loop_contents();
-        disk_drawn=disk_ui::State::Transferring; disk_first=false;
-        display::hold_disk(true);
-    }
-}
-static bool service_disk_frame() {
-    poll();
-    return !disk_activity.busy(to_ms_since_boot(get_absolute_time())) && !failed && !ejected;
+    disk_display::state(disk_ui::State::Transferring);
 }
 template<size_t N> struct Queue {
     char data[N]; size_t head=0, used=0;
@@ -280,6 +244,7 @@ void shutdown() {
 void acquire_disk(bool valid) {
     owned=valid && storage::unmount_system();
     if(!owned) storage::unmount_system();
+    disk_display::state(owned?disk_ui::State::Ready:disk_ui::State::Unavailable);
 }
 [[noreturn]] void reboot_disk() {
     transition_notice("USB DISK: ENTERING; restarting as USB mass storage\r\n");
@@ -288,42 +253,15 @@ void acquire_disk(bool valid) {
     tud_disconnect(); watchdog_reboot(0,0,10); while(true) tight_loop_contents();
 }
 [[noreturn]] void run_disk() {
-    uint32_t previous=to_ms_since_boot(get_absolute_time());
     while(true) {
         poll();
         uint32_t now=to_ms_since_boot(get_absolute_time());
-        if(!tud_mounted()) {disk_activity.reset(); write_activity.reset();}
-        bool busy=owned && !failed && !ejected && disk_activity.busy(now);
+        if(!tud_mounted()) write_activity.reset();
         bool writing=owned && !failed && !ejected && write_activity.busy(now);
         disk_lights(writing);
-        display::hold_disk(busy);
-        if(!busy && disk_write_paused) {
-            display::pause(false);
-            disk_write_paused=false;
-        }
-        if(!writing) disk_burst_active=false;
         disk_ui::State state=failed?disk_ui::State::Failed:ejected?disk_ui::State::Ejected:
             !owned?disk_ui::State::Unavailable:writing?disk_ui::State::Transferring:disk_ui::State::Ready;
-        bool changed=disk_first || state!=disk_drawn;
-        if((!busy || changed) && (changed || display::disk_ready()) && (changed || now-previous>=33)) {
-            // A write status change gets one frame even if directory reads
-            // continue. Reads never prolong the write timer or relight LEDs.
-            release_disk_display();
-            while(!display::disk_ready()) tight_loop_contents();
-            // Only reuse a buffer after core1 finishes its previous frame.
-            // Animation publishes asynchronously; a status change finishes
-            // once before holding the panel through the remaining file access.
-            // An operation arriving mid-render abandons this back buffer.
-            if(disk_ui::draw(display::menu_buffers[disk_back],state,now-previous,
-                             busy || failed || ejected || !owned?nullptr:service_disk_frame)) {
-                display::present_disk(disk_back); disk_back^=1;
-                previous=now; disk_drawn=state; disk_first=false;
-                if(busy) {
-                    while(!display::disk_ready()) tight_loop_contents();
-                    display::hold_disk(true);
-                }
-            }
-        }
+        disk_display::state(state);
         if(eject_complete && time_us_32()-eject_at>=250000 && gpio_get(BTN_HOME)) {
             disk_lights(false);
             transition_notice("USB DISK: EJECTED; returning to menu\r\n");
@@ -360,7 +298,6 @@ bool tud_msc_is_writable_cb(uint8_t lun) {return tud_msc_test_unit_ready_cb(lun)
 int32_t tud_msc_read10_cb(uint8_t lun,uint32_t lba,uint32_t offset,void *out,uint32_t bytes) {
     uint32_t at;
     if(!tud_msc_test_unit_ready_cb(lun) || !flashfat::disk.range(lba,offset,bytes,at)) return -1;
-    usb::transfer_started(false);
     if(flashfat::disk.read(at,out,bytes)) return static_cast<int32_t>(bytes);
     usb::failed=true; usb::disk_lights(false);
     tud_msc_set_sense(lun,SCSI_SENSE_MEDIUM_ERROR,0x11,0); return -1;
@@ -368,7 +305,7 @@ int32_t tud_msc_read10_cb(uint8_t lun,uint32_t lba,uint32_t offset,void *out,uin
 int32_t tud_msc_write10_cb(uint8_t lun,uint32_t lba,uint32_t offset,uint8_t *in,uint32_t bytes) {
     uint32_t at;
     if(!tud_msc_test_unit_ready_cb(lun) || !flashfat::disk.range(lba,offset,bytes,at)) return -1;
-    usb::transfer_started(true);
+    usb::write_started();
     uint32_t original=bytes;
     alignas(4) static uint8_t staging[4096];
     while(bytes) {
@@ -376,12 +313,6 @@ int32_t tud_msc_write10_cb(uint8_t lun,uint32_t lba,uint32_t offset,uint8_t *in,
         if(!flashfat::disk.read(base,staging,sizeof(staging))) {usb::failed=true; break;}
         if(std::memcmp(staging+within,in,n)) {
             std::memcpy(staging+within,in,n);
-            // Drain once for the burst, then keep core1 parked through all
-            // following sectors and the 500 ms quiet interval.
-            if(!display::paused()) {
-                display::pause(true);
-                usb::disk_write_paused=true;
-            }
             bool written=storage::replace_system_sector(base,staging);
             if(!written) {usb::failed=true; break;}
         }
@@ -390,13 +321,8 @@ int32_t tud_msc_write10_cb(uint8_t lun,uint32_t lba,uint32_t offset,uint8_t *in,
     if(usb::failed) {usb::disk_lights(false); tud_msc_set_sense(lun,SCSI_SENSE_MEDIUM_ERROR,0x0c,0); return -1;}
     return original;
 }
-void tud_msc_read10_complete_cb(uint8_t) {
-    usb::disk_activity.complete(to_ms_since_boot(get_absolute_time()));
-}
 void tud_msc_write10_complete_cb(uint8_t) {
-    uint32_t now=to_ms_since_boot(get_absolute_time());
-    usb::disk_activity.complete(now);
-    usb::write_activity.complete(now);
+    usb::write_activity.complete(to_ms_since_boot(get_absolute_time()));
 }
 bool tud_msc_start_stop_cb(uint8_t lun,uint8_t,bool start,bool load_eject) {
     if(load_eject && !start) {

@@ -6,10 +6,6 @@
 #include <string>
 #include <vector>
 
-static unsigned services=0;
-static bool service() {++services; return true;}
-static bool cancel() {++services; return false;}
-
 int main() {
     usb::DiskActivity activity;
     assert(!activity.busy(0));
@@ -27,16 +23,15 @@ int main() {
     constexpr size_t pixels=320*240,guard=32;
     std::vector<uint16_t> frame(pixels+guard*2,0x1234);
     uint16_t *out=frame.data()+guard;
-    assert(disk_ui::draw(out,disk_ui::State::Ready,33,service));
-    assert(services>=40); // USB is serviced throughout clearing, stars and text.
-    services=0;
-    assert(!disk_ui::draw(out,disk_ui::State::Ready,33,cancel));
-    assert(services==1); // Stop at the first file operation, never publish it.
+    disk_ui::draw(out,disk_ui::State::Ready,33);
     const disk_ui::State states[]={disk_ui::State::Ready,disk_ui::State::Transferring,
         disk_ui::State::Unavailable,disk_ui::State::Failed,disk_ui::State::Ejected};
     const char *names[]={"ready","transferring","unavailable","failed","ejected"};
     for(unsigned state=0;state<5;++state) {
         for(int i=0;i<120;++i) disk_ui::draw(out,states[state],i==60?0xffffffffu:33u);
+        const auto previous=frame;
+        disk_ui::draw(out,states[state],33);
+        assert(previous!=frame); // Writes and errors also keep animating.
         for(size_t i=0;i<guard;++i) assert(frame[i]==0x1234 && frame[pixels+guard+i]==0x1234);
         // The entire screen remains exactly pixel doubled, including all glyphs.
         for(int y=0;y<240;y+=2) for(int x=0;x<320;x+=2) {
