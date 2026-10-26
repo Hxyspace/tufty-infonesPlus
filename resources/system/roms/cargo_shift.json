@@ -1,0 +1,8 @@
+{
+  "name": "Cargo Shift",
+  "desc": "Solve 18 classic-style warehouse puzzles with up to six crates. Navigate tight passages, make room for other crates, and plan the order of each delivery.",
+  "developer": "Hxyspace",
+  "source": "https://github.com/Hxyspace/cargo-shift",
+  "genre": "Puzzle",
+  "players": "1"
+}

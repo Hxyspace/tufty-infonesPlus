@@ -1,4 +1,5 @@
 #include "settings.hpp"
+#include "library.hpp"
 #include "configuration.hpp"
 #include "controllers.hpp"
 #include "ble.hpp"
@@ -13,6 +14,18 @@
 #include <vector>
 
 static bool writable=true,save_ok=true;
+static bool reset_ok=true;
+static unsigned resets=0;
+namespace library {
+bool edited=false,save_ok=true;
+unsigned saves=0,discards=0;
+bool pending() {return edited;}
+bool save() {++saves; if(save_ok) edited=false; return save_ok;}
+void discard() {++discards; edited=false;}
+bool custom_order() {return false;}
+bool move_to_front(size_t,storage::Progress) {return true;}
+bool reset_order(storage::Progress) {return true;}
+}
 static unsigned icon_fixture=0;
 static unsigned saves=0,reads=0,searches=0,stops=0,connects=0,bright=80;
 static bool requested_te=true;
@@ -27,6 +40,7 @@ Config config;
 Entry table[128]{}; Entry *entries=table; size_t count=0; char error[96]{};
 bool state_ready() {return writable;}
 bool save() {++saves; return save_ok;}
+bool reset_state() {++resets; return reset_ok;}
 bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {
     ++reads; actual=0;
     if(std::strncmp(path,"/rom/settings/",14)) return false;
@@ -435,7 +449,7 @@ int main() {
     enter(1,settings::Page::Search);
     const auto home_search_stops=stops;
     home(); present(); assert(settings::take_exit()==settings::Exit::Library && stops==home_search_stops+1);
-    root(); enter(3,settings::Page::System); press(input::Confirm);
+    root(); enter(3,settings::Page::System); focus(1); press(input::Confirm);
     home(); present(); assert(settings::take_exit()==settings::Exit::Library);
     // Home can replace a pending system action, but cannot bypass a failed
     // save or the neutral barrier, including while Save/Release is pending.
@@ -490,4 +504,67 @@ int main() {
     home(); present();
     assert(settings::take_exit()==settings::Exit::Library);
     assert(stops==save_search_stops+1 && !radio.discovering);
+    // Order-only edits join the same exit gate, without rewriting configuration.
+    writable=save_ok=library::save_ok=true; configuration::init();
+    const auto config_saves=saves;
+    for(auto destination:{settings::Exit::Library,settings::Exit::Disk,settings::Exit::Bootsel,
+                          settings::Exit::Sleep,settings::Exit::Rebuild}) {
+        root(); library::edited=true;
+        const auto order_saves=library::saves;
+        settings::request_exit(destination); present();
+        assert(settings::take_exit()==destination && !library::pending());
+        assert(library::saves==order_saves+1 && saves==config_saves);
+    }
+    root(); library::edited=true; library::save_ok=false;
+    home(); present();
+    assert(settings::active() && library::pending() && std::strstr(settings::notice(),"failed"));
+    press(input::PageNext); press(input::PageNext); press(input::Confirm); // Cancel exit.
+    assert(!settings::transitioning() && library::pending());
+    home(); present(); library::save_ok=true;
+    press(input::Confirm); present(); // Retry save.
+    assert(settings::take_exit()==settings::Exit::Library && !library::pending());
+    root(); library::edited=true; library::save_ok=false;
+    const auto discarded=library::discards;
+    home(); present(); press(input::PageNext); press(input::Confirm); present();
+    assert(settings::take_exit()==settings::Exit::Library && !library::pending());
+    assert(library::discards==discarded+1);
+    library::save_ok=true;
+    // System order and row actions use the UI, including confirmation defaults.
+    root(); enter(3,settings::Page::System); enter(0,settings::Page::GameLibrary); back();
+    focus(1); press(input::Confirm); press(input::PagePrevious); press(input::Confirm); present();
+    assert(settings::take_exit()==settings::Exit::Disk);
+    root(); enter(3,settings::Page::System); focus(3);
+    press(input::Confirm); press(input::PagePrevious); press(input::Confirm); present();
+    assert(settings::take_exit()==settings::Exit::Bootsel);
+    root(); enter(3,settings::Page::System); focus(2);
+    press(input::Confirm); snapshot("restore-defaults"); press(input::Confirm); present();
+    assert(!resets && settings::active() && !settings::transitioning()); // Cancel is selected initially.
+    press(input::Confirm); press(input::PagePrevious); back(); present();
+    assert(!resets && !settings::transitioning()); // Back cancels too.
+    // Formatting waits until after presentation and release, bypasses all saves,
+    // and remains usable when State is already unavailable.
+    configuration::brightness(35); library::edited=true; writable=false;
+    const auto before_reset_saves=saves, before_reset_order_saves=library::saves;
+    press(input::Confirm); press(input::PagePrevious); press(input::Confirm);
+    assert(!resets && settings::transitioning());
+    input::hub.local(input::LocalB); present();
+    assert(!resets && settings::take_exit()==settings::Exit::None);
+    configuration::brightness(40); // A late edit cannot restart the save gate.
+    input::hub.local(0); present();
+    assert(resets==1 && settings::take_exit()==settings::Exit::Defaults && !settings::active());
+    assert(saves==before_reset_saves && library::saves==before_reset_order_saves);
+    // A failed reset never reboots or reports a successful reset; retry works.
+    root(); enter(3,settings::Page::System); focus(2); reset_ok=false;
+    press(input::Confirm); press(input::PagePrevious); press(input::Confirm); present();
+    assert(resets==2 && settings::active() && !settings::transitioning());
+    assert(settings::take_exit()==settings::Exit::None && std::strstr(settings::notice(),"failed"));
+    reset_ok=true;
+    press(input::Confirm); press(input::PagePrevious); press(input::Confirm); present();
+    assert(resets==3 && settings::take_exit()==settings::Exit::Defaults);
+    // Home before release cancels the reset and uses the ordinary save gate.
+    writable=true; root(); input::hub.local(input::LocalB);
+    settings::request_exit(settings::Exit::Defaults); present();
+    home(); input::hub.local(0); present();
+    assert(resets==3 && settings::take_exit()==settings::Exit::Library);
+    assert(!configuration::changed() && !library::pending());
 }

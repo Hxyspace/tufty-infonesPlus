@@ -37,6 +37,12 @@ def prepare(resources, session, reset=False):
     if previous and previous.get("source") != identity and not reset:
         raise ValueError("Session belongs to another resource directory; use another --session or --reset-state")
     hashes = {name: fingerprint(resources / name) for name in ("rom", "system", "state")}
+    # The preview replaces a raw FAT image instead of passing through MSC.
+    # Ask the runtime to durably invalidate its cache before using that image.
+    if not reset and (session / "state.bin").exists() and previous.get("system") != hashes["system"]:
+        (session / "system.changed").write_text("changed\n")
+    elif reset:
+        (session / "system.changed").unlink(missing_ok=True)
     with tempfile.TemporaryDirectory(prefix=".prepare-", dir=session) as directory:
         work = Path(directory)
         for name in ("rom", "system", "state"):

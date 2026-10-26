@@ -31,11 +31,16 @@ bool boot_requested=false;
     display::prepare_reboot(); tud_disconnect(); reset_usb_boot(0,0);
     while(true) tight_loop_contents();
 }
+[[noreturn]] void reboot() {
+    display::prepare_reboot(); tud_disconnect();
+    watchdog_reboot(0,0,10); while(true) tight_loop_contents();
+}
 static bool mode=false, owned=false, failed=false, ejected=false, prevent=false, eject_complete=false;
 static uint32_t eject_at=0;
 static bool console_tx_pending=false;
 constexpr uint32_t kDiskMagic=0x4e45534d;
 static DiskActivity write_activity;
+static bool disk_change_recorded=false;
 static void disk_lights(bool enabled) {
     static bool lit=false;
     if(lit==enabled) return;
@@ -312,6 +317,12 @@ int32_t tud_msc_write10_cb(uint8_t lun,uint32_t lba,uint32_t offset,uint8_t *in,
         uint32_t base=at&~4095u, within=at-base, n=std::min(bytes,4096-within);
         if(!flashfat::disk.read(base,staging,sizeof(staging))) {usb::failed=true; break;}
         if(std::memcmp(staging+within,in,n)) {
+            // Persist before touching System; a reset or unplug must not hide
+            // the change. MSC sectors have no trustworthy pathname identity.
+            if(!usb::disk_change_recorded) {
+                if(!storage::mark_library_changed()) {usb::failed=true; break;}
+                usb::disk_change_recorded=true;
+            }
             std::memcpy(staging+within,in,n);
             bool written=storage::replace_system_sector(base,staging);
             if(!written) {usb::failed=true; break;}

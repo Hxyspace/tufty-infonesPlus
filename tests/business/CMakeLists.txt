@@ -51,7 +51,8 @@ target_link_libraries(usb_disk_tests PRIVATE tufty_version)
 target_include_directories(usb_disk_tests BEFORE PRIVATE ${CMAKE_CURRENT_LIST_DIR}/usb_stubs)
 add_test(NAME usb_disk COMMAND usb_disk_tests)
 add_test(NAME usb_disk_eject COMMAND usb_disk_tests eject)
-add_executable(storage_tests storage_tests.cpp ${runtime}/storage.cpp ${runtime}/gamepad.cpp ${runtime}/fat_disk.cpp
+add_test(NAME usb_disk_marker_failure COMMAND usb_disk_tests marker_failure)
+add_executable(storage_tests storage_tests.cpp ${runtime}/storage.cpp ${runtime}/library.cpp ${runtime}/gamepad.cpp ${runtime}/fat_disk.cpp
   ${runtime}/rom_store.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp ${runtime}/input.cpp
   ${CMAKE_CURRENT_LIST_DIR}/battery_stub.cpp
   ${fatfs}/ff.c ${fatfs}/ffunicode.c
@@ -59,10 +60,16 @@ add_executable(storage_tests storage_tests.cpp ${runtime}/storage.cpp ${runtime}
   ${root}/lib/cjson/cJSON.c)
 add_test(NAME storage_4096 COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096)
 add_test(NAME storage_512 COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 512)
+add_test(NAME game_library COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/library_fixture.py $<TARGET_FILE:storage_tests>)
+add_test(NAME game_library_power_cut COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/library_fixture.py $<TARGET_FILE:storage_tests> power_cut)
+add_test(NAME game_library_limits COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/library_fixture.py $<TARGET_FILE:storage_tests> limits)
 foreach(scenario valid empty max long crc offset boundary flags desc_flag no_nul header strings short truncated oversize duplicate path control)
   add_test(NAME games_index_${scenario} COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/game_index_fixture.py $<TARGET_FILE:storage_tests> index_${scenario})
 endforeach()
 add_test(NAME state_blank COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 blank)
+foreach(scenario reset reset_blank reset_corrupt reset_failure)
+  add_test(NAME state_${scenario} COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 ${scenario})
+endforeach()
 add_test(NAME state_corrupt_record COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 corrupt)
 add_test(NAME state_idle_disabled COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 idle_off)
 add_test(NAME state_invalid_idle COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 bad_idle)

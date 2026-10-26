@@ -101,6 +101,51 @@ class ResourcesAndCliTests(unittest.TestCase):
         self.assertEqual(order[-1].description, "A plain introduction.\n\nAnother line.")
         self.assertFalse(removed)
 
+    def test_json_precedes_xml_and_plaintext_and_keeps_literal_entities(self):
+        metadata = {"name": "JSON title", "desc": 'First "quote".\n\nLiteral &amp; <tag>.',
+                    "developer": "A Developer", "source": "https://example.test/game"}
+        (self.work / "zEbRa.JSON").write_text("\ufeff" + json.dumps(metadata), encoding="utf-8")
+        (self.work / "Zebra.xml").write_text("<game><name>Old XML</name></game>")
+        game = next(game for game in builder.scan_games(self.work) if game.rom.name == "Zebra.NES")
+        self.assertEqual((game.title, game.description), (metadata["name"], metadata["desc"]))
+        self.assertEqual(game.metadata, metadata)
+        output = self.root / "json-bundle"
+        result = self.cli("--output", str(output), "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads((output / "Zebra.json").read_text()), metadata)
+        self.assertFalse(list(output.glob("*.txt")))
+        self.assertFalse(list(output.glob("*.xml")))
+        self.assertEqual({record["rom"]: record["title"] for record in
+                          builder.validate_index((output / "games.idx").read_bytes())}["Zebra.NES"],
+                         metadata["name"])
+
+    def test_xml_suffix_and_partial_json(self):
+        (self.work / "Alpha.xml").write_text("<game><name>XML title</name><desc>XML desc</desc></game>")
+        (self.work / "Plain.JSON").write_text('{"desc":"JSON only"}')
+        games = {game.rom.name: game for game in builder.scan_games(self.work)}
+        self.assertEqual((games["Alpha.nes"].title, games["Alpha.nes"].description),
+                         ("XML title", "XML desc"))
+        self.assertEqual((games["Plain.nes"].title, games["Plain.nes"].description),
+                         ("Plain", "JSON only"))
+        (self.work / "Plain.JSON").write_text('{"name":"","desc":""}')
+        game = next(game for game in builder.scan_games(self.work) if game.rom.name == "Plain.nes")
+        self.assertEqual((game.title, game.description, game.flags), ("Plain", "", 0))
+
+    def test_bad_preferred_json_fails_without_using_legacy_text(self):
+        index, order = self.work / "games.idx", self.work / "game-order.json"
+        index.write_bytes(b"previous index")
+        order.write_text('["Plain.nes"]')
+        for raw in ('{', '[]', '{"name":null}', '{"desc":42}',
+                    '{"name":"one","name":"two"}', '{"desc":"one","desc":"two"}',
+                    '{"desc":"中文"}', '{"desc":"x\\u0000y"}', '{"name":NaN}'):
+            with self.subTest(raw=raw):
+                (self.work / "Zebra.json").write_text(raw, encoding="utf-8")
+                result = self.cli("--yes")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Zebra.json", result.stderr)
+                self.assertEqual(index.read_bytes(), b"previous index")
+                self.assertEqual(order.read_text(), '["Plain.nes"]')
+
     def test_only_565_covers_are_used(self):
         # Legacy suffixes are ignored, even when malformed or present alongside .565.
         (self.work / "Alpha.rgb565").write_bytes(b"legacy")
@@ -135,7 +180,12 @@ class ResourcesAndCliTests(unittest.TestCase):
         output = self.root / "device-roms"
         result = self.cli("--output", str(output), "--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual({p.name for p in output.iterdir()}, {"games.idx", "Zebra.NES", "Alpha.nes", "Plain.nes", "Zebra.565"})
+        self.assertEqual({p.name for p in output.iterdir()}, {"games.idx", "Zebra.NES", "Alpha.nes", "Plain.nes",
+                                                            "Zebra.565", "Zebra.json", "Plain.json"})
+        self.assertEqual(json.loads((output / "Zebra.json").read_text()),
+                         {"name": "A & B", "desc": 'First "quote".\nNext.\n\nLast.'})
+        self.assertEqual(json.loads((output / "Plain.json").read_text()),
+                         {"name": "Plain", "desc": "A plain introduction.\n\nAnother line."})
         self.assertEqual((output / "games.idx").read_bytes(), (self.work / "games.idx").read_bytes())
         result = self.cli("--output", str(output), "--yes")
         self.assertNotEqual(result.returncode, 0)

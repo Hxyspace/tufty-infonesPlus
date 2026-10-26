@@ -20,7 +20,7 @@ python3 tools/preview.py --resources resources-local --settings
 
 `--settings` 直接从 Settings 启动，`--disk` 直接从 USB Disk 启动，两者不能同时指定；默认从游戏库启动。所有界面也可正常通过菜单进入。
 
-首次运行准备主机依赖和资源镜像，随后按资源内容变化刷新只读镜像。修改 ROM 后仍需使用索引工具更新该资源目录的 `system/roms/games.idx`；预览器与设备一样优先读取有效索引。`--no-build` 跳过编译，继续检查资源变化。
+首次运行准备主机依赖和资源镜像，随后按资源内容变化刷新镜像。预览器使用与设备相同的 ROM、封面和 JSON 元数据。`--no-build` 跳过编译，继续检查资源变化。
 
 默认构建目录为 `build/preview/`。每个资源根目录有独立的 `sessions/<标识>/`，里面的 `state.bin` 是主机设置副本，退出 Settings 或正常关闭窗口时保存。不会回写 `resources*/` 或设备。`--reset-state` 恢复所选资源的初始配置；`--session DIR` 指定另一份主机配置。切换资源中的初始 State 文件不会自动覆盖已保存的主机设置。
 
@@ -104,7 +104,7 @@ python3 tests/export_preview.py
 python3 tests/export_preview.py --resources resources-local --output .tmp/local-preview
 ```
 
-默认 `--mode all`，自动在 `build/preview-export/` 编译所需主机目标，打开 `.tmp/preview-report/index.html` 查看。`--mode host` 只使用非 SDL 测试出口，无需 SDL；`--mode sdl` 使用 SDL 集成流程和所选资源的游戏库。两种模式都会逐个检查索引里的 ROM 并导出核心末帧。资源目录需包含有效的 `system/roms/games.idx`，不会自动重建索引或回写资源。
+默认 `--mode all`，自动在 `build/preview-export/` 编译所需主机目标，打开 `.tmp/preview-report/index.html` 查看。`--mode host` 只使用非 SDL 测试出口，无需 SDL；`--mode sdl` 使用 SDL 集成流程和所选资源的游戏库。两种模式都会逐个检查游戏库中的 ROM 并导出核心末帧，不回写输入资源。
 
 ```sh
 python3 tests/export_preview.py --mode host

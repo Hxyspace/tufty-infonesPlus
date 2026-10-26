@@ -89,12 +89,36 @@ class MetadataText(HTMLParser):
             raise ValueError(f"Unsupported metadata declaration: {data}")
 
 
-def read_text(path, fallback_title):
+def json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON field: {key}")
+        result[key] = value
+    return result
+
+
+def invalid_json_constant(value):
+    raise ValueError(f"Invalid JSON constant: {value}")
+
+
+def read_metadata(path, fallback_title):
     title, description = fallback_title, ""
+    metadata = {}
     if path:
         try:
             raw = path.read_text(encoding="utf-8-sig")
-            if re.search(r"<(?:game|name|desc)\b", raw, re.IGNORECASE):
+            if path.suffix.lower() == ".json":
+                metadata = json.loads(raw, object_pairs_hook=json_object,
+                                      parse_constant=invalid_json_constant)
+                if not isinstance(metadata, dict):
+                    raise ValueError("Metadata must be a JSON object")
+                for field in ("name", "desc"):
+                    if field in metadata and not isinstance(metadata[field], str):
+                        raise ValueError(f"Metadata field {field!r} must be a string")
+                title = metadata.get("name") or fallback_title
+                description = metadata.get("desc", "")
+            elif re.search(r"<(?:game|name|desc)\b", raw, re.IGNORECASE):
                 parser = MetadataText()
                 parser.feed(raw)
                 parser.close()
@@ -111,7 +135,12 @@ def read_text(path, fallback_title):
     if not title:
         title = normalize_text(fallback_title, f"{label} fallback title")
     description = normalize_text(description, f"{label} description", multiline=True)
-    return title, description
+    return {**metadata, "name": title, "desc": description}
+
+
+def read_text(path, fallback_title):
+    metadata = read_metadata(path, fallback_title)
+    return metadata["name"], metadata["desc"]
 
 
 @dataclass(frozen=True)
@@ -120,6 +149,7 @@ class Game:
     title: str
     description: str
     cover: Path | None = None
+    metadata: dict | None = None
 
     @property
     def flags(self):
@@ -131,7 +161,7 @@ def scan_games(directory):
     resources, roms = {}, []
     for path in files:
         extension = path.suffix.lower()
-        if extension not in (".nes", ".565", ".txt"):
+        if extension not in (".nes", ".565", ".json", ".xml", ".txt"):
             continue
         key = (path.stem.casefold(), extension)
         if key in resources:
@@ -154,9 +184,12 @@ def scan_games(directory):
             with cover.open("rb") as source:
                 if len(source.read(COVER_BYTES + 1)) != COVER_BYTES:
                     raise ValueError(f"{cover}: expected {COVER_BYTES} bytes (58x80 RGB565)")
-        text = resources.get((rom.stem.casefold(), ".txt"))
-        title, description = read_text(text, rom.stem.replace("_", " "))
-        games.append(Game(rom, title, description, cover))
+        text = next((resources[(rom.stem.casefold(), extension)]
+                     for extension in (".json", ".xml", ".txt")
+                     if (rom.stem.casefold(), extension) in resources), None)
+        metadata = read_metadata(text, rom.stem.replace("_", " "))
+        games.append(Game(rom, metadata["name"], metadata["desc"], cover,
+                          metadata if text else None))
     return games
 
 
@@ -392,6 +425,10 @@ def publish(games, data, directory, output):
             shutil.copyfile(game.rom, staging / game.rom.name)
             if game.cover:
                 shutil.copyfile(game.cover, staging / (game.rom.stem + ".565"))
+            if game.metadata is not None:
+                (staging / (game.rom.stem + ".json")).write_text(
+                    json.dumps(game.metadata, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+                    encoding="utf-8")
         atomic_write(staging / "games.idx", data, validate_index)
         if output.exists():
             raise ValueError(f"Output already exists: {output}")
@@ -445,9 +482,9 @@ def main():
     print(f"Index: {target} ({len(data):,} bytes; CRC32 verified)")
     print(f"PC order: {order_path}")
     if output:
-        print("Deployment contains only ROMs, .565 covers and games.idx.")
+        print("Deployment contains ROMs, .565 covers, JSON metadata and games.idx.")
     else:
-        print("Working TXT files are retained; use --output NEW_DIR for a device-only bundle.")
+        print("Source metadata is retained; use --output NEW_DIR for a deployment bundle.")
 
 
 if __name__ == "__main__":

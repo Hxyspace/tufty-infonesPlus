@@ -6,6 +6,7 @@ import html
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -13,9 +14,42 @@ import tempfile
 PROJECT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(PROJECT / "tools"))
-from build_game_index import validate_index
 from preview import prepare
 import resource_images
+
+
+def read_catalog(directory):
+    """Independent expected records for checking the device builder; never writes resources."""
+    files = {}
+    for path in directory.iterdir():
+        if path.is_file():
+            key = path.name.lower()
+            if key in files:
+                raise ValueError(f"Case-insensitive resource conflict: {path}")
+            files[key] = path
+
+    def natural(name):
+        tokens = []
+        for part in re.split(r"([0-9]+)", name):
+            if part.isdigit():
+                tokens.append((ord("0"), int(part)))
+            else:
+                tokens.extend((ord(char.lower()), 0) for char in part)
+        return tuple(tokens), name
+
+    records = []
+    for rom in sorted((p for p in files.values() if p.suffix.lower() == ".nes"), key=lambda p: natural(p.name)):
+        metadata = files.get(rom.stem.lower() + ".json")
+        data = json.loads(metadata.read_text(encoding="utf-8-sig")) if metadata else {}
+        if not isinstance(data, dict):
+            raise ValueError(f"{metadata}: expected a JSON object")
+        title, description = data.get("name") or rom.stem, data.get("desc", "")
+        if not isinstance(title, str) or not isinstance(description, str):
+            raise ValueError(f"{metadata}: name/desc must be strings")
+        cover = files.get(rom.stem.lower() + ".565")
+        records.append(dict(rom=rom.name, title=title, description=description,
+                            flags=int(cover is not None and cover.stat().st_size == 9280) | (2 if description else 0)))
+    return records
 
 
 class Export:
@@ -89,6 +123,9 @@ class Export:
         self.run("host-library-fixture", [sys.executable, "-B", PROJECT / "tests/business/game_index_fixture.py",
                                         self.executable("storage_tests", True), "index_valid"],
                  {"TUFTY_PREVIEW": str(library / "fixture.ppm")})
+        self.run("host-library-maintenance", [sys.executable, "-B", PROJECT / "tests/business/library_fixture.py",
+                                            self.executable("storage_tests", True)],
+                 {"TUFTY_PREVIEW_DIR": str(library)})
         image = self.work / "host/system.bin"
         resource_images.fat(self.args.resources / "system", image)
         # The isolated catalog test mounts FAT only. Supply its built-in background fallback
@@ -107,7 +144,7 @@ class Export:
         library_count = self.section("Host · Game library", library.glob("*.ppm"),
                                      {str(i): record["title"] for i, record in enumerate(records)})
         disk_count = self.section("Host · USB Disk state fixtures", disk.glob("*.ppm"))
-        if not settings_count or library_count != len(records) + 1 or disk_count != 5:
+        if not settings_count or library_count != len(records) + 2 or disk_count != 5:
             raise RuntimeError("Host screenshots missing; rebuild the export targets")
 
     def sdl(self, records):
@@ -241,8 +278,8 @@ def main():
                     raise ValueError("Output/build and resource trees must be separate")
         for name in ("rom", "system", "state"):
             resource_images.entries(args.resources / name)
-        # Fail early on an invalid/missing index instead of silently reporting another catalog.
-        records = validate_index((args.resources / "system/roms/games.idx").read_bytes())
+        # Device/host runtime generates its own index from these source resources.
+        records = read_catalog(args.resources / "system/roms")
         from PIL import Image  # Check the optional report dependency before building/running.
         del Image
         marker = args.output / ".tufty-preview-export"

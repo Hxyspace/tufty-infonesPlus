@@ -1,4 +1,5 @@
 #include "runtime.hpp"
+#include "library.hpp"
 #include "menu.hpp"
 #include "menu_repeat.hpp"
 #include "settings.hpp"
@@ -85,10 +86,12 @@ std::string value(const std::string &key) {
     if(key=="selected") return std::to_string(selected);
     if(key=="count") return std::to_string(storage::count);
     if(key=="indexed") return std::to_string(storage::indexed());
+    if(key=="first_game") return storage::count?storage::entries[0].name:"none";
     if(key=="brightness") return std::to_string(storage::config.brightness);
     if(key=="swap") return std::to_string(storage::config.swap_ab);
     if(key=="te") return std::to_string(display::te_requested());
     if(key=="dirty") return std::to_string(configuration::changed());
+    if(key=="order_pending") return std::to_string(library::pending());
     if(key=="game_frames") return std::to_string(game_frames);
     if(key=="controller") return std::to_string(storage::config.controller);
     if(key=="allowed") return std::to_string(storage::config.ble.count);
@@ -203,8 +206,20 @@ void run_game() {
     if(!ok) std::snprintf(storage::error,sizeof(storage::error),"%s",error?error:"Core failed");
     std::printf("HOST game ended: frames=%llu error=%s\n",static_cast<unsigned long long>(game_frames),error?error:"none");
 }
+bool library_loading=false;
+uint32_t library_draw_at=0;
+void library_progress() {
+    const auto now=uint32_t(micros()/1000);
+    if(library_loading && now-library_draw_at<33) return;
+    library_loading=true; library_draw_at=now;
+    menu::draw_loading(screen.data(),now); show(screen.data());
+}
+void refresh_library(bool force=false) {
+    library_loading=false; menu::select(-1); storage::scan(force,library_progress);
+    input::hub.clear_events();
+}
 void loop(bool open_settings,bool open_disk) {
-    selected=storage::count?1:0; float position=float(selected);
+    selected=library_loading?0:storage::count?1:0; float position=float(selected);
     menu::Repeat repeat;
     uint32_t opened=micros()/1000;
     menu::enter(opened); menu::select(selected-1);
@@ -228,7 +243,7 @@ void loop(bool open_settings,bool open_disk) {
                 // Eject reboots the device: start at the first game and reset
                 // session-only TE, rather than restoring a Settings selection.
                 display::te_sync(true); controllers::init(); devices_init();
-                storage::scan(); menu::reset_page(); selected=storage::count?1:0; position=float(selected);
+                refresh_library(); menu::reset_page(); selected=library_loading?0:storage::count?1:0; position=float(selected);
                 repeat.reset(); input::hub.clear_events(); menu::select(selected-1); menu::enter(now); opened=now;
             }
             advance(); wait_until(deadline); continue;
@@ -239,6 +254,13 @@ void loop(bool open_settings,bool open_disk) {
             settings::update(snapshot,home,now); settings::draw(screen.data());
             show(screen.data()); settings::after_present();
             const auto exit=settings::take_exit();
+            if(exit==settings::Exit::Defaults) {
+                library::discard(); storage::config={}; configuration::init();
+                display::te_sync(true); display::brightness(storage::config.brightness);
+                controllers::init(); devices_init(); refresh_library(); menu::reset_page();
+                std::puts("HOST: defaults restored; restart simulated");
+            }
+            if(exit==settings::Exit::Rebuild) refresh_library(true);
             if(exit!=settings::Exit::None) {
                 if(exit!=settings::Exit::ResumeLibrary) {selected=0; position=0;}
                 if(exit==settings::Exit::Bootsel || exit==settings::Exit::Sleep)
@@ -346,8 +368,12 @@ int main(int argc,char **argv) {
         SDL_RenderSetIntegerScale(renderer,SDL_TRUE);
         texture=SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,320,240); check_sdl(texture,"Create texture");
         mount_flash(images); storage::init(); configuration::init(); controllers::init(); devices_init();
+        if(std::filesystem::exists(images/"system.changed")) {
+            if(!storage::mark_library_changed()) throw std::runtime_error("Cannot invalidate host game index");
+            flush_state(); std::filesystem::remove(images/"system.changed");
+        }
         if(!storage::mounted() && !disk) throw std::runtime_error(storage::error);
-        storage::scan(); menu::load_art(); initialized=true;
+        menu::load_art(); refresh_library(); initialized=true;
         std::printf("HOST library: %zu games, indexed=%d, writable_state=%d, brightness=%u\n",storage::count,storage::indexed(),storage::state_ready(),storage::config.brightness);
         loop(settings,disk);
         if(next_action!=actions.size()) throw std::runtime_error("Preview ended before script completed");
@@ -355,6 +381,7 @@ int main(int argc,char **argv) {
             const auto saved=configuration::save();
             if(saved!=configuration::SaveResult::Saved) throw std::runtime_error("Host settings could not be saved on exit");
         }
+        if(!library::save()) throw std::runtime_error("Host game order could not be saved on exit");
         flush_state();
     } catch(const std::exception &e) {std::cerr<<"Host preview: "<<e.what()<<'\n'; result=1;}
     unmount_flash();

@@ -21,7 +21,7 @@ using namespace tufty::storage::layout;
 Config config;
 char error[96]{};
 static Entry __uninitialized_psram("rom_entries") table[kMaxRoms];
-static uint8_t __uninitialized_psram("rom_data") rom_data[kMaxRomBytes];
+alignas(8) static uint8_t __uninitialized_psram("rom_data") rom_data[kMaxRomBytes];
 static uint8_t __uninitialized_psram("games_index") index_data[256*1024];
 Entry *entries=table;
 size_t count=0;
@@ -68,7 +68,7 @@ static int state_read(const lfs_config *,lfs_block_t block,lfs_off_t at,void *ou
     std::memcpy(out,reinterpret_cast<const void *>(kXipBase+kState.offset+block*4096+at),bytes); return 0;
 }
 static int state_prog(const lfs_config *,lfs_block_t block,lfs_off_t at,const void *in,lfs_size_t bytes) {
-    if(!state_range(block,at,bytes) || at%256 || bytes%256 || !display::paused()) return LFS_ERR_INVAL;
+    if(!state_range(block,at,bytes) || at%256 || bytes%256 || (!disk_display::active() && !display::paused())) return LFS_ERR_INVAL;
     alignas(4) uint8_t page[256];
     for(uint32_t n=0;n<bytes;n+=256) {
         std::memcpy(page,static_cast<const uint8_t *>(in)+n,256);
@@ -78,7 +78,7 @@ static int state_prog(const lfs_config *,lfs_block_t block,lfs_off_t at,const vo
     return 0;
 }
 static int state_erase(const lfs_config *,lfs_block_t block) {
-    if(!state_range(block,0,4096) || !display::paused()) return LFS_ERR_INVAL;
+    if(!state_range(block,0,4096) || (!disk_display::active() && !display::paused())) return LFS_ERR_INVAL;
     Operation op{kState.offset+block*4096,4096,nullptr,true};
     if(!execute(op)) return LFS_ERR_IO;
     const auto *p=reinterpret_cast<const volatile uint8_t *>(kXipBase+op.at);
@@ -161,7 +161,17 @@ static void load_config() {
     config.ble_scan_uuid=scan_uuid;
     cJSON_Delete(root);
 }
+static void init_state() {
+    if(state_mounted) return;
+    lc.read=state_read; lc.prog=state_prog; lc.erase=state_erase; lc.sync=state_sync;
+    lc.read_size=lc.prog_size=lc.cache_size=256;
+    lc.block_size=4096; lc.block_count=kState.bytes/4096; lc.block_cycles=500;
+    lc.lookahead_size=sizeof(lookahead); lc.lookahead_buffer=lookahead;
+    lc.read_buffer=read_cache; lc.prog_buffer=prog_cache;
+    state_mounted=lfs_mount(&lfs,&lc)==0;
+}
 bool init_disk() {
+    if(disk_display::active()) init_state();
     flashfat::disk.read=read_system;
     if(flashfat::disk.probe()) {
         flashfat::disk.runtime_owned=true;
@@ -173,18 +183,14 @@ void init(bool use_state) {
     init_disk();
     rom.mount(reinterpret_cast<const void *>(kXipBase+kRom.offset),kRom.bytes);
     if(use_state) {
-        lc.read=state_read; lc.prog=state_prog; lc.erase=state_erase; lc.sync=state_sync;
-        lc.read_size=lc.prog_size=lc.cache_size=256;
-        lc.block_size=4096; lc.block_count=kState.bytes/4096; lc.block_cycles=500;
-        lc.lookahead_size=sizeof(lookahead); lc.lookahead_buffer=lookahead;
-        lc.read_buffer=read_cache; lc.prog_buffer=prog_cache;
-        state_mounted=lfs_mount(&lfs,&lc)==0;
+        init_state();
         if(state_mounted) load_config();
     }
     if(!fat_mounted) std::snprintf(error,sizeof(error),"Invalid /system FAT; no format performed");
 }
 bool mounted() {return fat_mounted;}
 bool state_ready() {return state_mounted && writable_config;}
+bool state_available() {return state_mounted;}
 bool indexed() {return index_mode;}
 uint32_t generation() {return storage_generation;}
 
@@ -236,10 +242,9 @@ static uint32_t index_crc(size_t bytes) {
     }
     return crc^0xffffffffu;
 }
-static bool load_index() {
+static bool decode_index(size_t bytes) {
     index_mode=false; index_strings=0; index_file_bytes=0;
-    size_t bytes=0;
-    if(!read_file("/system/roms/games.idx",index_data,256*1024,bytes) || bytes<32 || bytes>256*1024) return false;
+    if(bytes<32 || bytes>sizeof index_data) return false;
     if(std::memcmp(index_data,"GIDX",4) || index_u16(4)!=1 || index_u16(6)!=32 ||
        index_u16(10)!=16 || index_data[30]!=1 || index_u32(24)!=0 ||
        index_data[28]!=58 || index_data[29]!=80 || index_data[31]!=0) return false;
@@ -261,6 +266,22 @@ static bool load_index() {
     }
     count=games; index_mode=true; return true;
 }
+bool load_catalog() {
+    size_t bytes=0;
+    count=0; index_mode=false; ++storage_generation;
+    return read_file("/state/games.idx",index_data,sizeof index_data,bytes) && decode_index(bytes);
+}
+bool install_catalog(const void *data,size_t bytes) {
+    if(bytes>sizeof index_data) return false;
+    std::memcpy(index_data,data,bytes); ++storage_generation;
+    return decode_index(bytes);
+}
+uint32_t catalog_crc() {return index_mode?index_u32(20):0;}
+size_t copy_catalog(void *data,size_t capacity) {
+    if(!index_mode || capacity<index_file_bytes) return 0;
+    std::memcpy(data,index_data,index_file_bytes); return index_file_bytes;
+}
+void *library_scratch() {return rom_data;}
 const char *title(size_t index) {
     if(index>=count || !index_mode) return nullptr;
     return reinterpret_cast<const char *>(index_data+index_strings+table[index].title_offset);
@@ -302,32 +323,100 @@ bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {
     }
     return false;
 }
-void scan(bool directory_only) {
-    count=0;
-    ++storage_generation;
-    index_mode=false; index_strings=0; index_file_bytes=0;
-    if(!fat_mounted) return;
-    error[0]=0;
-    if(!directory_only && load_index()) return;
+FileStatus file_size(const char *path,size_t &bytes) {
+    bytes=0;
+    if(!std::strncmp(path,"/system/",8) && fat_mounted) {
+        FILINFO info{}; const auto rc=f_stat(path+7,&info);
+        if(rc==FR_NO_FILE || rc==FR_NO_PATH) return FileStatus::Missing;
+        if(rc!=FR_OK || (info.fattrib&AM_DIR)) return FileStatus::Error;
+        bytes=info.fsize; return FileStatus::File;
+    }
+    if(!std::strncmp(path,"/state/",7) && state_mounted) {
+        lfs_info info{}; const auto rc=lfs_stat(&lfs,path,&info);
+        if(rc==LFS_ERR_NOENT) return FileStatus::Missing;
+        if(rc || info.type!=LFS_TYPE_REG) return FileStatus::Error;
+        bytes=info.size; return FileStatus::File;
+    }
+    return FileStatus::Error;
+}
+struct FlashPause {
+    bool own=!disk_display::active() && !display::paused();
+    FlashPause() {if(own) display::pause(true);}
+    ~FlashPause() {if(own) display::pause(false);}
+};
+bool reset_state() {
+    if(disk_display::active()) return false;
+    init_state();
+    FlashPause pause;
+    if(state_mounted) {
+        if(lfs_unmount(&lfs)) return false;
+        state_mounted=false;
+    }
+    const bool formatted=lfs_format(&lfs,&lc)==0;
+    state_mounted=lfs_mount(&lfs,&lc)==0;
+    writable_config=formatted && state_mounted;
+    return writable_config;
+}
+bool write_state(const char *path,const void *data,size_t bytes,Progress progress) {
+    if(!state_mounted) return false;
+    // One library operation at a time; configuration has its own temporary file.
+    constexpr const char *temporary="/state/library.tmp";
+    uint8_t cache[256]; lfs_file_config fc{}; fc.buffer=cache; lfs_file_t f{};
+    {
+        FlashPause pause;
+        const int rc=lfs_mkdir(&lfs,"/state");
+        if(rc && rc!=LFS_ERR_EXIST) return false;
+        if(lfs_file_opencfg(&lfs,&f,temporary,LFS_O_RDWR|LFS_O_CREAT|LFS_O_TRUNC,&fc)) return false;
+    }
+    bool ok=true;
+    const auto *source=static_cast<const uint8_t *>(data);
+    for(size_t at=0;ok && at<bytes;at+=4096) {
+        const size_t n=std::min<size_t>(4096,bytes-at);
+        {FlashPause pause; ok=lfs_file_write(&lfs,&f,source+at,n)==lfs_ssize_t(n);}
+        if(!disk_display::active()) tufty_service();
+        if(progress) progress();
+    }
+    {FlashPause pause; if(ok) ok=lfs_file_sync(&lfs,&f)==0;}
+    if(ok) ok=lfs_file_rewind(&lfs,&f)==0;
+    uint8_t verify[256];
+    for(size_t at=0;ok && at<bytes;at+=sizeof verify) {
+        const size_t n=std::min(sizeof verify,bytes-at);
+        ok=lfs_file_read(&lfs,&f,verify,n)==lfs_ssize_t(n) && !std::memcmp(verify,source+at,n);
+        if(progress && at%4096==0) progress();
+    }
+    {FlashPause pause;
+        ok=lfs_file_close(&lfs,&f)==0 && ok;
+        if(ok) ok=lfs_rename(&lfs,temporary,path)==0;
+    }
+    return ok;
+}
+bool remove_state(const char *path) {
+    if(!state_mounted) return false;
+    FlashPause pause;
+    const int rc=lfs_remove(&lfs,path);
+    return rc==0 || rc==LFS_ERR_NOENT;
+}
+bool mark_library_changed() {
+    size_t bytes=0;
+    const auto status=file_size("/state/library.dirty",bytes);
+    if(status==FileStatus::File) return true;
+    if(status==FileStatus::Error) return false;
+    const uint8_t dirty=1;
+    return write_state("/state/library.dirty",&dirty,1);
+}
+bool visit_roms(Visitor visitor,void *context) {
+    if(!fat_mounted) return false;
     SystemReader reader;
     DIR dir{};
     FRESULT rc=f_opendir(&dir,"/roms");
-    if(rc!=FR_OK) {std::snprintf(error,sizeof(error),"Copy .nes files to /system/roms"); return;}
+    if(rc==FR_NO_PATH || rc==FR_NO_FILE) return true;
+    if(rc!=FR_OK) return false;
     FILINFO info{};
     while((rc=f_readdir(&dir,&info))==FR_OK && info.fname[0]) {
-        size_t n=std::strlen(info.fname);
-        if(!(info.fattrib&AM_DIR) && n>4 && n<256 && !strcasecmp(info.fname+n-4,".nes")) {
-            if(count==kMaxRoms) {std::printf("ROM list limit: 128 games\n"); break;}
-            std::memcpy(table[count].name,info.fname,n+1);
-            table[count].bytes=info.fsize; table[count].title_offset=0;
-            table[count].description_offset=0; table[count].flags=0; ++count;
-        }
+        if(!(info.fattrib&(AM_DIR|AM_HID|AM_SYS))) visitor(info.fname,info.fsize,context);
         tufty_service();
     }
-    f_closedir(&dir);
-    if(rc!=FR_OK) std::snprintf(error,sizeof(error),"Directory read failed (%u)",unsigned(rc));
-    std::sort(table,table+count,[](const Entry &a,const Entry &b){return strcasecmp(a.name,b.name)<0;});
-    if(!count && !error[0]) std::snprintf(error,sizeof(error),"Copy .nes files to /system/roms");
+    return f_closedir(&dir)==FR_OK && rc==FR_OK;
 }
 bool load(size_t index,const uint8_t *&data,size_t &bytes) {
     data=nullptr; bytes=0;

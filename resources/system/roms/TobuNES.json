@@ -1,0 +1,8 @@
+{
+  "name": "TobuNES",
+  "desc": "Climb high above the ground to rescue your floating cat. Dash through the air, bounce off enemies, and use short bursts of flight to keep rising.",
+  "developer": "Steven Chadburrow",
+  "source": "https://github.com/stevenchadburrow/TobuNES",
+  "genre": "Platformer",
+  "players": "1"
+}

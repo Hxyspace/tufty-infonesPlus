@@ -37,7 +37,7 @@ bash tools/test.sh
 
 工具要求、完整业务测试和离线构建说明见[构建指南](docs/building.md)。完整文件系统镜像附带 Chase、LAN Master、TobuNES、Cargo Shift 四款游戏及菜单资源，刷入后可直接体验；自定义镜像资源见 [resources](resources/README.md)。
 
-可使用 `python3 tools/build_game_index.py` 预览、排序并生成游戏索引；`--yes` 无交互生成，`--output deploy/roms` 创建新的设备包。将包内 ROM、`.565` 封面和 `games.idx` 复制到设备磁盘的 `roms/`，详见[索引与部署](docs/usage.md#游戏索引封面和背景)。
+将 ROM、可选同名 `.565` 封面和 `.json` 简介复制到设备磁盘的 `roms/`，安全弹出后设备自动更新游戏库。无需在电脑上生成索引，元数据格式见[游戏资料与部署](docs/usage.md#游戏索引封面和背景)。
 
 ## 操作
 

@@ -13,6 +13,7 @@ void enter(uint32_t now_ms);
 void service(uint32_t now_ms);
 // UI card 0 is Settings; cards 1..count map to ROM 0..count-1.
 void draw(uint16_t *out,int selected,float position,uint32_t elapsed,const char *message=nullptr);
+void draw_loading(uint16_t *out,uint32_t elapsed);
 // Select identity and prepare text; cover misses remain placeholders until presented.
 void select(int index); // ROM index; -1 suspends cover loading on Settings.
 // Post-presentation only; one synchronous current-cover read, no neighbor reads.

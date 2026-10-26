@@ -8,7 +8,6 @@ struct Entry {
     char name[256];
     uint32_t bytes;
     // Metadata offsets are relative to the validated games.idx string table.
-    // They are zero when the directory-scan fallback is active.
     uint32_t title_offset=0, description_offset=0, flags=0;
 };
 struct Config {
@@ -31,16 +30,31 @@ const char *title(size_t index);
 const char *description(size_t index);
 bool has_cover(size_t index);
 void init(bool state=true);
-// Disk boot only: probe/mount the system volume for validation, without ROMFS
-// or State initialization. acquire_disk() then unmounts it for host ownership.
+// Disk boot validates System and mounts only State for the durable change flag.
 bool init_disk();
 bool mounted();
-// Maintenance scans may bypass an otherwise valid but outdated index.
-void scan(bool directory_only=false);
+bool load_catalog();
+bool install_catalog(const void *data,size_t bytes);
+size_t copy_catalog(void *data,size_t capacity);
+uint32_t catalog_crc();
+// Library maintenance owns this scratch space only while no ROM is running.
+void *library_scratch();
+enum class FileStatus {Missing,File,Error};
+FileStatus file_size(const char *path,size_t &bytes);
+using Visitor=void (*)(const char *name,uint32_t bytes,void *context);
+bool visit_roms(Visitor visitor,void *context);
+using Progress=void (*)();
+bool scan(bool force=false,Progress progress=nullptr);
+bool write_state(const char *path,const void *data,size_t bytes,Progress progress=nullptr);
+bool remove_state(const char *path);
+bool mark_library_changed();
 bool load(size_t index,const uint8_t *&data,size_t &bytes);
 bool read_file(const char *path,void *out,size_t capacity,size_t &actual);
 bool save();
+// Reformat State only. The caller must reboot on success without saving live settings.
+bool reset_state();
 bool unmount_system();
 bool replace_system_sector(uint32_t offset,const uint8_t *sram);
 bool state_ready();
+bool state_available();
 }

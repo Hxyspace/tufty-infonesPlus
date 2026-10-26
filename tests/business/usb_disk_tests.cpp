@@ -22,6 +22,8 @@ namespace {
 struct Stop {};
 uint32_t clock_us=0,deadline=0,last_poll=0,max_gap=0,next_io=0,last_write=0;
 unsigned polls=0,reads=0,writes=0,light_changes=0,te_changes=0;
+unsigned markers=0;
+bool marker_ok=true;
 bool pumping=false,lights=false,write_ok=true,requested_te=true,rebooted=false,prepared=false;
 disk_ui::State state=disk_ui::State::Unavailable;
 uint8_t flash[8192]{};
@@ -78,12 +80,14 @@ void state(disk_ui::State value){::state=value;}
 bool active(){return true;}
 }
 namespace storage {
+bool mark_library_changed(){++markers;return marker_ok;}
 Config config;
 size_t count=0;
 bool mounted(){return true;}
 bool state_ready(){return true;}
 bool unmount_system(){flashfat::disk.runtime_owned=false;return true;}
 bool replace_system_sector(uint32_t at,const uint8_t *data){
+    assert(markers==1 && marker_ok);
     assert(!flashfat::disk.runtime_owned && lights && state==disk_ui::State::Transferring);
     ++writes;clock_us+=40000; // A synchronous erase/program; no display callback.
     if(!write_ok)return false;
@@ -103,6 +107,12 @@ int main(int argc,char **argv){
     usb_test::console_connected=false;
     flashfat::disk.read=read;flashfat::disk.sector_size=4096;flashfat::disk.runtime_owned=true;
     usb::init(true);usb::acquire_disk(true);pumping=true;
+    if(argc>1 && !std::strcmp(argv[1],"marker_failure")) {
+        marker_ok=false; uint8_t data[512]{}; data[0]=1;
+        assert(tud_msc_write10_cb(0,0,0,data,sizeof data)==-1);
+        assert(markers==1 && writes==0 && flash[0]==0);
+        return 0;
+    }
     run_until(1500000);
     assert(polls>5000 && reads>80 && writes>10 && max_gap<=40100);
     assert(light_changes==2 && !lights && state==disk_ui::State::Ready);

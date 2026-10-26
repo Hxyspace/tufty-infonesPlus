@@ -1,4 +1,6 @@
 #include "storage.hpp"
+#include "library.hpp"
+#include "display.hpp"
 #include "fat_disk.hpp"
 #include "core_api/cartridge.hpp"
 #include "menu.hpp"
@@ -18,6 +20,13 @@
 namespace battery {extern Reading test_value; extern unsigned test_refreshes;}
 using namespace tufty::storage::layout;
 static uint8_t *flash;
+static bool fail_flash=false;
+struct PowerCut {};
+static int cut_after=-1;
+static unsigned programs=0,system_reads=0,progress_frames=0;
+static flashfat::Read source_read;
+static bool counted_read(uint32_t at,void *out,uint32_t n) {++system_reads; return source_read(at,out,n);}
+static void progress() {++progress_frames; assert(!display::paused());}
 static unsigned service_calls=0;
 static bool check_read_ownership=false;
 static unsigned blocked_unmounts=0;
@@ -39,16 +48,23 @@ bool running=false;
 bool active() {return running;}
 }
 void flash_range_erase(uint32_t at,size_t bytes) {
+    if(fail_flash) return;
     if(disk_display::active())assert(flash_test::irq_disabled);
     assert(at%4096==0 && bytes%4096==0);
     assert((at>=kState.offset && kState.contains(at-kState.offset,bytes)) ||
            (at>=kSystem.offset && kSystem.contains(at-kSystem.offset,bytes)));
-    std::memset(flash+at,255,bytes);
+    const bool cut=cut_after>=0 && cut_after--==0;
+    std::memset(flash+at,255,cut?bytes/2:bytes);
+    if(cut) throw PowerCut{};
 }
 void flash_range_program(uint32_t at,const uint8_t *data,size_t bytes) {
+    ++programs;
+    if(fail_flash) return;
     if(disk_display::active())assert(flash_test::irq_disabled);
     assert(at%256==0 && bytes%256==0 && at>=kSystem.offset && at+bytes<=16*1024*1024);
-    for(size_t i=0;i<bytes;++i) {assert((flash[at+i]&data[i])==data[i]); flash[at+i]=data[i];}
+    const bool cut=cut_after>=0 && cut_after--==0;
+    for(size_t i=0;i<(cut?bytes/2:bytes);++i) {assert((flash[at+i]&data[i])==data[i]); flash[at+i]=data[i];}
+    if(cut) throw PowerCut{};
 }
 static int read_lfs(const lfs_config *,lfs_block_t b,lfs_off_t at,void *out,lfs_size_t n) {
     std::memcpy(out,flash+kState.offset+b*4096+at,n); return 0;
@@ -86,6 +102,31 @@ int main(int argc,char **argv) {
     assert(flash!=MAP_FAILED && reinterpret_cast<uintptr_t>(flash)==kXipBase);
     std::memset(flash,255,16*1024*1024);
     std::ifstream input(argv[1],std::ios::binary); assert(input);
+    if(argc==4 && std::string(argv[3])=="packed_state_churn") {
+        input.read(reinterpret_cast<char *>(flash),16*1024*1024);
+        assert(input.gcount()==16*1024*1024);
+        storage::init(); assert(storage::mounted() && storage::state_ready());
+        assert(storage::scan() && storage::count>1);
+        assert(library::move_to_front(storage::count-1) && library::save());
+        assert(library::custom_order());
+        // Force metadata compaction so both halves of /state's pair contain
+        // valid old revisions, as on a device with repeated settings/order edits.
+        for(uint32_t revision=0;revision<80;++revision)
+            assert(storage::write_state("/state/replace-churn",&revision,sizeof revision));
+        std::ofstream output(argv[1],std::ios::binary|std::ios::trunc);
+        output.write(reinterpret_cast<const char *>(flash),16*1024*1024);
+        output.close(); assert(output);
+        munmap(flash,16*1024*1024); return 0;
+    }
+    if(argc==4 && std::string(argv[3])=="library_recover") {
+        input.read(reinterpret_cast<char *>(flash),16*1024*1024); assert(input.gcount()==16*1024*1024);
+        storage::init(); assert(storage::state_ready());
+        assert(storage::scan() && storage::indexed() && storage::count==6);
+        assert(std::string(storage::entries[0].name)=="A.nes" || std::string(storage::entries[0].name)=="C.nes");
+        size_t n=0; assert(storage::file_size("/state/library.dirty",n)==storage::FileStatus::Missing);
+        const auto writes=programs; assert(storage::scan() && programs==writes);
+        munmap(flash,16*1024*1024); return 0;
+    }
     if(argc==4 && std::string(argv[3])=="packed") {
         input.read(reinterpret_cast<char *>(flash),16*1024*1024);
         assert(input.gcount()==16*1024*1024);
@@ -114,6 +155,9 @@ int main(int argc,char **argv) {
             char text[32]{};
             assert(!storage::read_file("/system/assets/test.txt",text,sizeof(text),bytes));
             assert(!storage::read_file("/state/nested/test.txt",text,sizeof(text),bytes));
+            assert(storage::file_size("/state/game-order.json",bytes)==storage::FileStatus::Missing);
+            assert(storage::file_size("/state/games.idx",bytes)==storage::FileStatus::Missing);
+            assert(storage::file_size("/state/replace-churn",bytes)==storage::FileStatus::Missing);
         }
         menu::load_art(); std::vector<uint16_t> frame(320*240);
         menu::draw(frame.data(),0,0,300);
@@ -125,8 +169,8 @@ int main(int argc,char **argv) {
     std::vector<uint8_t> original(flash,flash+16*1024*1024);
     std::string scenario=argc>=4?argv[3]:"";
     bool gamepad_no_state=scenario=="gamepad_no_state";
-    bool blank=argc==4 && (std::string(argv[3])=="blank" || gamepad_no_state);
-    bool corrupt=argc==4 && std::string(argv[3])=="corrupt";
+    bool blank=argc==4 && (scenario=="blank" || gamepad_no_state || scenario=="reset_blank");
+    bool corrupt=argc==4 && (scenario=="corrupt" || scenario=="reset_corrupt");
     bool idle_off=argc==4 && std::string(argv[3])=="idle_off";
     bool bad_idle=argc==4 && std::string(argv[3])=="bad_idle";
     bool custom_ble=argc==4 && (std::string(argv[3])=="ble" || scenario.rfind("gamepad_",0)==0);
@@ -140,15 +184,168 @@ int main(int argc,char **argv) {
     if(bad_policy) ble="\"serial_enabled\":false,\"ble_mode\":\"whitelist\",\"ble_preferred\":0,\"ble_whitelist\":[]";
     if(scenario=="duplicate_peer") ble="\"ble_whitelist\":[{\"mac\":\"AA:BB:CC:DD:EE:FF\",\"random\":false},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"random\":false}]";
     if(!blank) fixture_state(corrupt,idle_off?"0":bad_idle?"86401":nullptr,ble);
+    if(scenario.rfind("reset",0)==0) {
+        storage::init(); assert(storage::mounted());
+        if(!blank && !corrupt) {
+            assert(storage::scan());
+            const char order[]="[\"Sample Game.nes\"]";
+            assert(storage::write_state("/state/game-order.json",order,sizeof order-1));
+            assert(storage::write_state("/state/extra",order,sizeof order-1));
+        }
+        const std::vector<uint8_t> before(flash,flash+kState.offset);
+        if(scenario=="reset_failure") {
+            fail_flash=true; assert(!storage::reset_state()); fail_flash=false;
+            assert(!display::paused() && !storage::state_ready());
+        }
+        assert(storage::reset_state());
+        assert(!display::paused() && storage::state_ready());
+        size_t bytes=0;
+        for(const auto *name:{"nes.json","settings.json","game-order.json","games.idx","library.stamp","extra"}) {
+            const auto path=std::string("/state/")+name;
+            assert(storage::file_size(path.c_str(),bytes)==storage::FileStatus::Missing);
+        }
+        assert(!std::memcmp(flash,before.data(),before.size())); // Firmware/ROM/System preserved.
+        storage::config={}; assert(storage::save()); // Fresh State accepts default settings.
+        storage::config.brightness=1; storage::init(); assert(storage::config.brightness==80);
+        assert(storage::scan() && storage::count>0); // Missing index is rebuilt normally.
+        assert(storage::reset_state()); // Repeated resets also clear the regenerated files.
+        assert(storage::file_size("/state/nes.json",bytes)==storage::FileStatus::Missing);
+        assert(storage::file_size("/state/games.idx",bytes)==storage::FileStatus::Missing);
+        munmap(flash,16*1024*1024); return 0;
+    }
     if(blank || corrupt || bad_idle || bad_peer || bad_ble || bad_policy) {
         std::vector<uint8_t> before(flash,flash+16*1024*1024);
         storage::init(); assert(storage::mounted() && !storage::state_ready());
         assert(!storage::config.ble.count && storage::config.serial_enabled);
         assert(!storage::save());
+        if(blank) {
+            assert(!storage::scan() && storage::indexed() && storage::count==1);
+            assert(std::string(storage::error)=="Game list ready; not saved");
+        }
         assert(std::memcmp(flash,before.data(),before.size())==0);
         return 0;
     }
     storage::init(); assert(storage::mounted() && storage::state_ready());
+    if(scenario=="library_limits") {
+        assert(storage::scan() && storage::count==128 && storage::indexed());
+        assert(std::string(storage::entries[0].name)=="L1.nes" && std::string(storage::entries[127].name)=="L128.nes");
+        for(size_t i=0;i<5;++i) assert(!*storage::description(i));
+        assert(std::string(storage::description(5))=="literal \\u0000 [[[]]]");
+        const char order[]="[\"L140.nes\"]";
+        assert(storage::mark_library_changed());
+        assert(storage::write_state("/state/game-order.json",order,sizeof order-1));
+        assert(storage::scan() && storage::count==128);
+        assert(std::string(storage::entries[0].name)=="L140.nes" && std::string(storage::entries[127].name)=="L127.nes");
+        assert(library::reset_order() && std::string(storage::entries[127].name)=="L128.nes");
+        munmap(flash,16*1024*1024); return 0;
+    }
+    if(scenario=="library" || scenario.rfind("library_cut_",0)==0) {
+        source_read=flashfat::disk.read; flashfat::disk.read=counted_read;
+        const auto names=[] {
+            std::string result;
+            for(size_t i=0;i<storage::count;++i) {if(i)result+=","; result+=storage::entries[i].name;}
+            return result;
+        };
+        const auto state=[](const char *path) {
+            size_t n=0; std::vector<uint8_t> data(256*1024);
+            assert(storage::read_file(path,data.data(),data.size(),n)); data.resize(n); return data;
+        };
+        const auto changed=[] {
+            size_t n=0; return storage::file_size("/state/library.dirty",n)==storage::FileStatus::File;
+        };
+        assert(storage::scan(false,progress));
+        assert(storage::indexed() && names()=="A.nes,B.nes,C.nes,D.nes,Game2.nes,Game10.nes");
+        assert(std::string(storage::description(0))=="First\n\nSecond");
+        assert(progress_frames && !changed() && !library::custom_order());
+        menu::load_art();
+        std::vector<uint16_t> loading(320*240+16,0x1234);
+        const auto services=service_calls;
+        menu::draw_loading(loading.data(),10000); const auto first_loading=loading;
+        menu::draw_loading(loading.data(),10070); assert(loading!=first_loading && service_calls==services);
+        for(size_t i=320*240;i<loading.size();++i) assert(loading[i]==0x1234);
+        if(const char *directory=std::getenv("TUFTY_PREVIEW_DIR")) {
+            std::ofstream out(std::string(directory)+"/scanning.ppm",std::ios::binary); out<<"P6\n320 240\n255\n";
+            for(size_t i=0;i<320*240;++i) {
+                const auto pixel=loading[i];
+                const char rgb[]={char(((pixel>>11)&31)*255/31),char(((pixel>>5)&63)*255/63),char((pixel&31)*255/31)};
+                out.write(rgb,3);
+            }
+            assert(out);
+        }
+        if(scenario.rfind("library_cut_",0)==0) {
+            cut_after=std::stoi(scenario.substr(12));
+            assert(library::move_to_front(2));
+            try {library::save();} catch(const PowerCut &) {}
+            std::ofstream out(std::string(argv[4])+"/cut.img",std::ios::binary);
+            out.write(reinterpret_cast<const char *>(flash),16*1024*1024); out.close(); assert(out);
+            munmap(flash,16*1024*1024); return 0;
+        }
+        auto index=state("/state/games.idx");
+        const auto writes=programs; system_reads=progress_frames=0;
+        assert(storage::scan(false,progress));
+        assert(!system_reads && !progress_frames && writes==programs); // Ordinary boot has no source reads/writes.
+        assert(storage::mark_library_changed() && changed());
+        assert(storage::scan());
+        assert(system_reads && !changed() && state("/state/games.idx")==index);
+        system_reads=0;
+        const auto before_edits=programs;
+        assert(library::move_to_front(2) && library::pending());
+        assert(library::reset_order() && !library::pending());
+        assert(names()=="A.nes,B.nes,C.nes,D.nes,Game2.nes,Game10.nes" && programs==before_edits);
+        assert(library::move_to_front(2));
+        assert(names()=="C.nes,A.nes,B.nes,D.nes,Game2.nes,Game10.nes" && !system_reads);
+        assert(library::move_to_front(3));
+        assert(names()=="D.nes,C.nes,A.nes,B.nes,Game2.nes,Game10.nes");
+        assert(library::move_to_front(1));
+        assert(library::pending() && programs==before_edits && !system_reads && !changed());
+        assert(state("/state/games.idx")==index);
+        assert(library::save() && !library::pending());
+        auto order=state("/state/game-order.json");
+        assert(std::string(order.begin(),order.end())=="[\"C.nes\",\"D.nes\"]");
+        const auto unchanged_writes=programs;
+        assert(library::move_to_front(0) && programs==unchanged_writes);
+        // Failed durable marker must not replace the previous index or order.
+        index=state("/state/games.idx"); fail_flash=true;
+        assert(library::move_to_front(2) && library::pending());
+        assert(!library::save() && library::pending()); fail_flash=false;
+        assert(state("/state/games.idx")==index && state("/state/game-order.json")==order);
+        library::discard();
+        assert(!library::pending() && names()=="C.nes,D.nes,A.nes,B.nes,Game2.nes,Game10.nes");
+        assert(library::move_to_front(2));
+        fail_flash=true; assert(!library::save()); fail_flash=false;
+        assert(library::save() && !library::pending()); // Retry preserves the draft.
+        // Model interruption after committing order but before committing index.
+        assert(storage::mark_library_changed());
+        const char interrupted[]="[\"B.nes\",\"C.nes\"]";
+        assert(storage::write_state("/state/game-order.json",interrupted,sizeof interrupted-1));
+        assert(storage::scan() && !changed());
+        assert(names()=="B.nes,C.nes,A.nes,D.nes,Game2.nes,Game10.nes");
+        // Emulate a completed USB session changing metadata and deleting a ROM.
+        const auto replace_system=[&](const char *name) {
+            assert(storage::mark_library_changed());
+            assert(storage::unmount_system());
+            std::ifstream file(std::string(argv[4])+"/"+name,std::ios::binary);
+            file.read(reinterpret_cast<char *>(flash+kSystem.offset),kSystem.bytes);
+            assert(file.gcount()==kSystem.bytes); assert(storage::init_disk());
+        };
+        replace_system("changed.img"); assert(storage::scan());
+        assert(names()=="B.nes,A.nes,D.nes,Game2.nes,Game10.nes");
+        assert(std::string(storage::description(1))=="First\n\nEdited"); // Same-size JSON edit changes fingerprint.
+        replace_system("original.img"); assert(storage::scan());
+        assert(names()=="B.nes,C.nes,A.nes,D.nes,Game2.nes,Game10.nes"); // Absent priority retained.
+        assert(library::reset_order() && !library::custom_order());
+        assert(names()=="A.nes,B.nes,C.nes,D.nes,Game2.nes,Game10.nes");
+        assert(library::save());
+        // Corrupt order is not overwritten; reset remains available from the in-memory catalog.
+        assert(storage::mark_library_changed());
+        assert(storage::write_state("/state/game-order.json","[broken",7));
+        assert(!storage::scan() && storage::indexed() && storage::count==6 && changed());
+        assert(library::reset_order()); assert(storage::scan() && !changed());
+        replace_system("empty.img"); assert(storage::scan() && storage::indexed() && !storage::count);
+        system_reads=0; const auto empty_writes=programs;
+        assert(storage::scan() && !system_reads && programs==empty_writes);
+        munmap(flash,16*1024*1024); return 0;
+    }
     if(scenario=="catalog") {
         assert(argc==5);
         std::ifstream expected_file(argv[4]);
@@ -162,7 +359,10 @@ int main(int argc,char **argv) {
         menu::load_art();
         for(size_t i=0;i<storage::count;++i) {
             auto *record=cJSON_GetArrayItem(expected,int(i));
-            assert(std::string(storage::entries[i].name)==cJSON_GetObjectItemCaseSensitive(record,"rom")->valuestring);
+            const char *expected_name=cJSON_GetObjectItemCaseSensitive(record,"rom")->valuestring;
+            if(std::strcmp(storage::entries[i].name,expected_name))
+                std::fprintf(stderr,"Catalog row %zu: expected '%s', got '%s'\n",i,expected_name,storage::entries[i].name);
+            assert(std::string(storage::entries[i].name)==expected_name);
             assert(std::string(storage::title(i))==cJSON_GetObjectItemCaseSensitive(record,"title")->valuestring);
             assert(std::string(storage::description(i))==cJSON_GetObjectItemCaseSensitive(record,"description")->valuestring);
             assert(storage::entries[i].flags==unsigned(cJSON_GetObjectItemCaseSensitive(record,"flags")->valueint));
@@ -190,7 +390,12 @@ int main(int argc,char **argv) {
         cJSON_Delete(expected); munmap(flash,16*1024*1024); return 0;
     }
     if(scenario.rfind("index_",0)==0) {
-        storage::scan();
+        // Test the GIDX decoder independently of source reconstruction. A
+        // System fixture is copied into State by the test, never by firmware.
+        std::vector<uint8_t> wire(512*1024); size_t wire_bytes=0;
+        assert(storage::read_file("/system/roms/games.idx",wire.data(),wire.size(),wire_bytes));
+        assert(storage::write_state("/state/games.idx",wire.data(),wire_bytes));
+        storage::load_catalog();
         const bool valid=scenario=="index_valid" || scenario=="index_empty" || scenario=="index_max" || scenario=="index_long";
         assert(storage::indexed()==valid);
         if(valid) {
@@ -281,12 +486,12 @@ int main(int argc,char **argv) {
                 }
             }
         } else {
-            assert(storage::count==2);
-            assert(!storage::title(0) && !storage::description(0));
+            storage::scan(true);
+            assert(storage::indexed() && storage::count==1);
             assert(std::string(storage::entries[0].name)=="Sample Game.nes");
         }
         const auto generation=storage::generation();
-        storage::scan(true); assert(!storage::indexed() && storage::count==2);
+        storage::scan(true); assert(storage::indexed() && storage::count==1);
         assert(storage::generation()!=generation);
         select_ready(0); // Invalidate cover and text caches after a directory generation change.
         munmap(flash,16*1024*1024); return 0;
@@ -305,10 +510,8 @@ int main(int argc,char **argv) {
     }
     assert(storage::config.ble_scan_uuid==0x1812);
     assert(flashfat::disk.sector_size==std::stoi(argv[2]));
-    storage::scan(); assert(storage::count==2);
-    bool unicode=false;
-    for(size_t i=0;i<storage::count;++i) if(std::string(storage::entries[i].name)=="测试.nes") unicode=true;
-    assert(unicode);
+    storage::scan(); assert(storage::indexed() && storage::count==1);
+    assert(std::string(storage::entries[0].name)=="Sample Game.nes"); // Unsupported glyph names are reported and skipped.
     const uint8_t *data; size_t bytes;
     assert(storage::load(0,data,bytes) && bytes==16400);
     nes::Cartridge image; assert(nes::inspect(data,bytes,image));

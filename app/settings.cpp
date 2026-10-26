@@ -1,4 +1,5 @@
 #include "settings.hpp"
+#include "library.hpp"
 #include "configuration.hpp"
 #include "controllers.hpp"
 #include "ble.hpp"
@@ -13,7 +14,12 @@
 
 namespace settings {
 namespace {
-enum class Confirm {None,DisableBle,DisableSerial,Search,ModeAuto,ModeAllowed,Clear,Remove,Sleep,Disk,Bootsel};
+enum class Confirm {None,DisableBle,DisableSerial,Search,ModeAuto,ModeAllowed,Clear,Remove,Sleep,Disk,Bootsel,ResetOrder,Defaults};
+enum class LibraryAction {None,Move,Reset};
+LibraryAction library_action=LibraryAction::None;
+char move_name[256]{};
+uint32_t library_generation=0;
+bool unsaved() {return configuration::changed() || library::pending();}
 enum class Dialog {None,Confirm,SaveError,Brightness,SleepTime,ControllerId};
 Page current=Page::Root;
 unsigned focuses[unsigned(Page::Count)]{};
@@ -41,12 +47,12 @@ char selected_name[32]{},message[96]{},question[64]{};
 uint16_t id_original=0;
 unsigned id_draft=0,digit=0;
 enum class Mark {None,Off,On};
-struct Row {char label[80]{},value[32]{}; bool arrow=false; Mark mark=Mark::None;};
+struct Row {char label[80]{},value[32]{}; bool arrow=false; Mark mark=Mark::None; bool enabled=true;};
 Row rows[17];
 unsigned row_count=0;
 char footer[96]{};
 const char *titles[]={"Settings","Display","Control","Bluetooth","Search gamepads","Gamepad",
-    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About"};
+    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front"};
 constexpr Page categories[]={Page::Display,Page::Control,Page::Power,Page::System,Page::About};
 constexpr ui::Icon category_icons[]={ui::Icon::Display,ui::Icon::Control,ui::Icon::Power,ui::Icon::System,ui::Icon::About};
 constexpr uint32_t sleep_presets[]={0,60,180,300,600,1800};
@@ -97,6 +103,16 @@ void add(const char *label,const char *value="",bool arrow=false) {
 void marked(const char *label,bool enabled) {
     add(label); rows[row_count-1].mark=enabled?Mark::On:Mark::Off;
 }
+Row row_at(Page view,unsigned i) {
+    if(view!=Page::GameOrder) return rows[i];
+    Row row;
+    if(i<storage::count) {
+        const char *title=storage::title(i);
+        std::snprintf(row.label,sizeof row.label,"%.*s",int(sizeof row.label-1),title?title:storage::entries[i].name);
+        row.enabled=i!=0;
+    }
+    return row;
+}
 const char *parent_title() {
     switch(current) {
     case Page::Root: return "Library";
@@ -104,6 +120,8 @@ const char *parent_title() {
     case Page::Search: case Page::Allowed: case Page::Mode: return "Bluetooth";
     case Page::Device: return "Search gamepads";
     case Page::AllowedDevice: return "Allowed devices";
+    case Page::GameLibrary: return "System";
+    case Page::GameOrder: return "Game library";
     default: return "Settings";
     }
 }
@@ -129,7 +147,7 @@ void model(uint32_t now=0,Page view=Page::Count) {
     case Page::Root:
         for(auto item:categories) add(titles[unsigned(item)],"",true);
         std::snprintf(footer,sizeof(footer),"%s",!configuration::available()?"Session only / Saving unavailable":
-            configuration::changed()?"Changes save on exit":"Saved settings"); break;
+            unsaved()?"Changes save on exit":"Saved settings"); break;
     case Page::Display: {
         std::snprintf(value,sizeof(value),"%u%%",cfg.brightness); add("Brightness",value,true);
         marked("TE sync",display::te_requested());
@@ -186,7 +204,15 @@ void model(uint32_t now=0,Page view=Page::Count) {
         rows[row_count-1].arrow=true;
         add("Sleep now","",true); break;
     case Page::System:
-        add("USB disk mode","",true); add("Firmware update","",true); break;
+        add("Game library","",true); add("USB disk mode","",true);
+        add("Factory reset","",true); add("Firmware update","",true); break;
+    case Page::GameLibrary:
+        add("Move to front","",true); rows[0].enabled=storage::count>1;
+        add("Reset order"); rows[1].enabled=library::custom_order();
+        add("Rebuild index"); break;
+    case Page::GameOrder:
+        row_count=storage::count;
+        std::snprintf(footer,sizeof footer,"Confirm: move to first game"); break;
     case Page::About:
         add("Tufty NES",TUFTY_VERSION);
         std::snprintf(value,sizeof(value),"%u",unsigned(storage::count)); add("Games",value);
@@ -209,6 +235,8 @@ void back() {
     case Page::Device: go(Page::Search); break;
     case Page::AllowedDevice: go(Page::Allowed); break;
     case Page::Allowed: case Page::Mode: go(Page::Bluetooth); break;
+    case Page::GameLibrary: go(Page::System); break;
+    case Page::GameOrder: go(Page::GameLibrary); break;
     default: go(Page::Root); break;
     }
 }
@@ -225,6 +253,8 @@ void confirmed(uint32_t now) {
     case Confirm::Sleep: request_exit(Exit::Sleep); break;
     case Confirm::Disk: request_exit(Exit::Disk); break;
     case Confirm::Bootsel: request_exit(Exit::Bootsel); break;
+    case Confirm::Defaults: request_exit(Exit::Defaults); break;
+    case Confirm::ResetOrder: library_action=LibraryAction::Reset; say("Updating order..."); break;
     case Confirm::None: break;
     }
 }
@@ -245,6 +275,7 @@ void adjust(int direction) {
 }
 void activate(uint32_t now) {
     const auto row=selected(); auto &cfg=storage::config;
+    if(row>=row_count || !row_at(current,row).enabled) return;
     switch(current) {
     case Page::Root: {
         go(categories[row]); break;
@@ -319,12 +350,25 @@ void activate(uint32_t now) {
         else if(row==1) ask(Confirm::Sleep,"Sleep until next wake?");
         break;
     case Page::System:
-        ask(row?Confirm::Bootsel:Confirm::Disk,row?"Restart in firmware updater?":"Restart as a USB disk?"); break;
+        if(row==0) go(Page::GameLibrary);
+        else if(row==1) ask(Confirm::Disk,"Restart as a USB disk?");
+        else if(row==2) ask(Confirm::Defaults,"Reset settings and order?");
+        else ask(Confirm::Bootsel,"Restart in firmware updater?");
+        break;
+    case Page::GameLibrary:
+        if(row==0) go(Page::GameOrder);
+        else if(row==1) ask(Confirm::ResetOrder,"Restore filename order?");
+        else request_exit(Exit::Rebuild);
+        break;
+    case Page::GameOrder:
+        std::snprintf(move_name,sizeof move_name,"%s",storage::entries[row].name);
+        library_action=LibraryAction::Move; say("Updating order..."); barrier(); break;
     default: break;
     }
 }
 }
 void open() {
+    library_action=LibraryAction::None; library_generation=storage::generation();
     opened=true; current=Page::Root; completed=target=Exit::None;
     focuses[unsigned(Page::Root)]=0;
     title_focus=false;
@@ -342,9 +386,12 @@ void request_exit(Exit destination) {
     if(target!=Exit::None) return;
     if(!opened) open();
     stop_search(); dialog=Dialog::None; target=destination;
-    save_bypassed=false;
-    saving=configuration::changed() || !configuration::available();
-    waiting_release=!saving; say(saving?"Saving...":"Release buttons to continue"); barrier();
+    // Defaults deliberately discards live edits. Do not save them before or
+    // after formatting State; wait for neutral input before the destructive step.
+    save_bypassed=destination==Exit::Defaults;
+    saving=!save_bypassed && (unsaved() || !configuration::available());
+    waiting_release=!saving;
+    say(save_bypassed?"Resetting settings; release buttons":saving?"Saving...":"Release buttons to continue"); barrier();
 }
 void request_save() {
     if(target!=Exit::None) return;
@@ -358,6 +405,14 @@ Exit take_exit() {const auto result=completed; completed=Exit::None; return resu
 void update(input::Snapshot keys,bool home,uint32_t now) {
     if(!opened) return;
     drawn_now=now; configuration::sync();
+    if(library_generation!=storage::generation()) {
+        library_generation=storage::generation();
+        if(current==Page::GameOrder || current==Page::GameLibrary) {
+            library_action=LibraryAction::None; selected()=0;
+            if(dialog==Dialog::Confirm) dialog=Dialog::None;
+            barrier();
+        }
+    }
     if(message[0] && now-message_at>=5000 && !transitioning()) message[0]=0;
     const auto &allowed=storage::config.ble;
     bool list_changed=previous_allowed.count!=allowed.count;
@@ -401,9 +456,13 @@ void update(input::Snapshot keys,bool home,uint32_t now) {
     }
     model(now);
     if(home) {
+        library_action=LibraryAction::None;
         // Home always leaves the application, including a pending system
         // transition. Preserve its save/error gate and require button release.
-        if(target!=Exit::None) {stop_search(); target=Exit::Library; barrier();}
+        if(target==Exit::Defaults) {
+            target=Exit::None; waiting_release=save_bypassed=false;
+            request_exit(Exit::Library);
+        } else if(target!=Exit::None) {stop_search(); target=Exit::Library; barrier();}
         else request_exit(Exit::Library);
         return;
     }
@@ -443,7 +502,11 @@ void update(input::Snapshot keys,bool home,uint32_t now) {
             if(dialog==Dialog::Confirm) {
                 if(choice==0) confirmed(now); else {dialog=Dialog::None; barrier();}
             } else if(choice==0) {dialog=Dialog::None; saving=true; say("Saving..."); barrier();}
-            else if(choice==1) {dialog=Dialog::None; waiting_release=true; save_bypassed=true; say("Session only; release buttons"); barrier();}
+            else if(choice==1) {
+                library::discard();
+                dialog=Dialog::None; waiting_release=true; save_bypassed=true;
+                say("Session only; release buttons"); barrier();
+            }
             else {dialog=Dialog::None; target=Exit::None; message[0]=0; barrier();}
         }
         return;
@@ -463,7 +526,7 @@ void update(input::Snapshot keys,bool home,uint32_t now) {
         if(pressed&input::PageNext) selected()=std::min(row_count?row_count-1:0,selected()+1);
         else if(pressed&input::Next) {
             // Enter once on an edge; a held Right cannot drill through pages.
-            if(rows[selected()].arrow) {if(keys.pressed&input::Next) activate(now);}
+            if(row_count && row_at(current,selected()).arrow) {if(keys.pressed&input::Next) activate(now);}
         }
         else if(pressed&input::Confirm) activate(now);
     }
@@ -471,8 +534,20 @@ void update(input::Snapshot keys,bool home,uint32_t now) {
 }
 void after_present() {
     if(!opened) return;
+    if(library_action!=LibraryAction::None) {
+        const auto action=library_action; library_action=LibraryAction::None;
+        size_t index=0;
+        while(index<storage::count && std::strcmp(move_name,storage::entries[index].name)) ++index;
+        const bool ok=action==LibraryAction::Reset?library::reset_order():library::move_to_front(index);
+        if(ok && current==Page::GameOrder) selected()=0;
+        library_generation=storage::generation();
+        say(ok?(action==LibraryAction::Reset?"Filename order restored":"Moved to first game"):storage::error);
+        barrier();
+    }
     if(saving) {
-        const auto result=configuration::save(); saving=false;
+        auto result=configuration::save(); saving=false;
+        if(result!=configuration::SaveResult::Failed && result!=configuration::SaveResult::Unavailable && library::pending())
+            result=library::save()?configuration::SaveResult::Saved:configuration::SaveResult::Failed;
         std::printf("State save: %s\n",result==configuration::SaveResult::Saved?"OK":
             result==configuration::SaveResult::Unchanged?"unchanged":
             result==configuration::SaveResult::Unavailable?"unavailable; runtime settings retained":"failed; original record retained");
@@ -483,13 +558,17 @@ void after_present() {
     }
     // Console remains live while waiting for release. Never silently lose a
     // change received after the successful write but before a mode transition.
-    if(waiting_release && !save_bypassed && configuration::changed()) {
+    if(waiting_release && !save_bypassed && unsaved()) {
         waiting_release=false; saving=true; say("Saving..."); return;
     }
     if(waiting_release && input::hub.neutral()) {
+        if(target==Exit::Defaults && !storage::reset_state()) {
+            target=Exit::None; waiting_release=save_bypassed=false;
+            say("Reset failed; try again"); barrier(); return;
+        }
         if(target==Exit::Stay) {
             target=Exit::None; waiting_release=false; barrier();
-            say(!configuration::available() || configuration::changed()?"Session only; changes retained":"Saved settings"); return;
+            say(!configuration::available() || unsaved()?"Session only; changes retained":"Saved settings"); return;
         }
         completed=target; target=Exit::None; waiting_release=false; opened=false; barrier();
     }
@@ -554,13 +633,13 @@ void draw(uint16_t *out) {
     ui::rounded_box(out,content_x+panel_margin,body_top+panel_margin,
         318-content_x-2*panel_margin,bottom-1-body_top-2*panel_margin,5,surface);
     for(unsigned i=first;i<last;++i) {
-        const int y=row_top+row_height*(i-first); const auto &row=rows[i];
+        const int y=row_top+row_height*(i-first); const auto row=row_at(view,i);
         const bool focus=!sidebar_focus && !title_focus && i==row_focus && view!=Page::About && !searching;
         if(focus) {ui::rounded_box(out,left,y+1,306-left,22,5,highlight); ui::box(out,left+2,y+6,2,12,ui::cyan);}
         if(i+1<last) ui::box(out,label_x,y+23,298-label_x,1,separator);
         const int value_width=std::min(ui::width(row.value),std::max(0,285-label_x-12));
         const int label_right=row.value[0]?285-value_width-8:row.mark!=Mark::None?275:row.arrow?287:299;
-        ui::text_centered(out,row.label,label_x,y,24,focus?ui::white:ui::grey,label_right-label_x);
+        ui::text_centered(out,row.label,label_x,y,24,!row.enabled?ui::dim:focus?ui::white:ui::grey,label_right-label_x);
         if(row.value[0]) ui::text_centered(out,row.value,285-value_width,y,24,ui::cyan,value_width);
         if(row.mark!=Mark::None) ui::circle(out,285,y+12,4,row.mark==Mark::On?green:ui::rgb(100,100,100));
         if(row.arrow) ui::text_centered(out,">",295,y,24,ui::orange,10);
@@ -636,6 +715,8 @@ void draw(uint16_t *out) {
         }
         ui::text_centered(out,dialog==Dialog::SaveError?"Settings not saved":question,28,top+12,24,ui::white,263);
         if(dialog==Dialog::SaveError) ui::text_centered(out,"Runtime changes are kept",28,top+38,24,ui::grey,263);
+        else if(confirmation==Confirm::Defaults)
+            ui::text_centered(out,"Games kept; device will restart",28,top+38,24,ui::grey,263);
         const char *options[]={"Retry",target==Exit::Library || target==Exit::ResumeLibrary?
             "Return without saving":"Continue without saving","Cancel"};
         const char *confirm_options[]={"Continue","Cancel"};

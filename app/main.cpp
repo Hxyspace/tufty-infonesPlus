@@ -31,6 +31,21 @@ static const uint8_t *rom_data=nullptr;
 static size_t rom_bytes=0;
 static bool usb_ready=false;
 static bool ble_ready=false;
+static bool library_loading=false;
+static uint32_t library_draw_at=0;
+static unsigned library_back=0;
+static void library_progress() {
+    const auto now=to_ms_since_boot(get_absolute_time());
+    if(library_loading && now-library_draw_at<33) return;
+    library_loading=true; library_draw_at=now;
+    menu::draw_loading(display::menu_buffers[library_back],now);
+    display::present_menu(library_back); library_back^=1;
+}
+static void refresh_library(bool force=false) {
+    library_loading=false; menu::select(-1);
+    storage::scan(force,library_progress);
+    input::hub.clear_events();
+}
 static void sample_local() {
     input::hub.local((!gpio_get(BTN_A)?input::LocalA:0)|(!gpio_get(BTN_B)?input::LocalB:0)|
         (!gpio_get(BTN_C)?input::LocalC:0)|(!gpio_get(BTN_UP)?input::LocalUp:0)|
@@ -122,8 +137,8 @@ int main() {
     disk=power::reset_startup() || disk;
     usb::init(disk); usb_ready=true;
     if(disk) {
-        // No library, game display, controllers, BLE or State filesystem in
-        // this boot. USB tasks start only after core1 is safely running in RAM.
+        // Only System and the State change flag are needed in this boot.
+        // USB tasks start only after core1 is safely running in RAM.
         disk_display::start(storage::config.brightness);
         usb::acquire_disk(storage::init_disk());
         usb::run_disk();
@@ -136,8 +151,8 @@ int main() {
     display::brightness(storage::config.brightness);
     ble::init();
     ble_ready=true;
-    storage::scan(); menu::load_art();
-    int selected=storage::count?1:0;
+    menu::load_art(); refresh_library();
+    int selected=library_loading?0:storage::count?1:0;
     uint32_t sleep_duration=0;
     menu::Repeat repeat;
     float position=selected;
@@ -164,13 +179,7 @@ int main() {
         }
         if(usb::save_requested && !settings::transitioning()) settings::request_save();
         if(usb::rescan_requested) {
-            char previous_name[256]{};
-            if(selected>0 && static_cast<size_t>(selected)<=storage::count)
-                std::snprintf(previous_name,sizeof(previous_name),"%s",storage::entries[selected-1].name);
-            usb::rescan_requested=false; storage::scan(true); menu::select(-1);
-            selected=0;
-            for(size_t i=0;i<storage::count;++i)
-                if(!std::strcmp(previous_name,storage::entries[i].name)) {selected=static_cast<int>(i)+1;break;}
+            usb::rescan_requested=false; refresh_library(true); selected=0;
             position=selected; menu::reset_page();
             menu::select(selected-1);
         }
@@ -183,8 +192,10 @@ int main() {
             display::present_menu(back); back^=1;
             settings::after_present();
             const auto exit=settings::take_exit();
+            if(exit==settings::Exit::Rebuild) refresh_library(true);
             if(exit==settings::Exit::Disk) usb::reboot_disk();
             else if(exit==settings::Exit::Bootsel) usb::reboot_bootsel();
+            else if(exit==settings::Exit::Defaults) usb::reboot();
             else if(exit==settings::Exit::Sleep) {
                 power::sleep(sleep_duration); sleep_duration=0; power::process(true);
             }

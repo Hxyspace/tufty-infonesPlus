@@ -194,6 +194,8 @@ def main():
 32 press W
 33 release W
 34 expect page 10
+34 press K
+35 release K
 35 press W
 36 release W
 38 press I
@@ -266,6 +268,103 @@ def main():
 24 expect selected 1
 25 quit
 """, disk=True)
+    library_entry="""
+0 source serial
+1 press Down
+2 release Down
+3 press Down
+4 release Down
+5 press Down
+6 release Down
+7 press Return
+8 release Return
+9 expect page 10
+14 press Return
+15 release Return
+16 expect page 12
+16 shot game-library.bmp
+"""
+    run("library-priority",library_entry+"""
+17 press Return
+18 release Return
+19 expect page 13
+20 press Down
+21 release Down
+22 press Down
+23 release Down
+24 press Return
+25 expect first_game Lan_Master.nes
+25 expect order_pending 1
+29 release Return
+30 shot game-order.bmp
+31 press H
+32 release H
+34 expect view library
+34 expect order_pending 0
+35 quit
+""",settings=True)
+    run("library-reset",library_entry+"""
+17 expect first_game Lan_Master.nes
+18 press Down
+19 release Down
+20 press Return
+21 release Return
+22 press Up
+23 release Up
+24 press Return
+25 release Return
+26 expect first_game cargo_shift.nes
+27 press Down
+28 release Down
+29 press Return
+30 release Return
+33 expect view library
+33 expect selected 0
+34 expect indexed 1
+35 shot library-rebuilt.bmp
+36 quit
+""",settings=True)
+    run("restore-defaults",library_entry+"""
+17 press Return
+18 release Return
+20 press Down
+21 release Down
+23 press Return
+24 release Return
+25 expect order_pending 1
+26 press Escape
+27 release Escape
+29 press Escape
+30 release Escape
+32 expect page 10
+33 press Down
+34 release Down
+36 press Down
+37 release Down
+39 press Return
+40 release Return
+42 shot restore-defaults.bmp
+43 press Up
+44 release Up
+46 press Return
+47 release Return
+50 expect view library
+50 expect brightness 80
+50 expect swap 0
+50 expect dirty 0
+50 expect order_pending 0
+50 expect first_game cargo_shift.nes
+50 expect count 4
+50 expect indexed 1
+51 quit
+""",settings=True)
+    run("defaults-persisted","""
+0 expect brightness 80
+0 expect swap 0
+0 expect first_game cargo_shift.nes
+0 expect count 4
+1 quit
+""")
     for image in work.glob("*.bmp"):
         data = image.read_bytes()
         assert data[:2] == b"BM" and struct.unpack_from("<ii", data, 18) == (320, 240)

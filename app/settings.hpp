@@ -4,8 +4,8 @@
 #include <cstdint>
 
 namespace settings {
-enum class Page {Root,Display,Control,Bluetooth,Search,Device,Allowed,AllowedDevice,Mode,Power,System,About,Count};
-enum class Exit {None,Library,Sleep,Disk,Bootsel,ResumeLibrary,Stay};
+enum class Page {Root,Display,Control,Bluetooth,Search,Device,Allowed,AllowedDevice,Mode,Power,System,About,GameLibrary,GameOrder,Count};
+enum class Exit {None,Library,Sleep,Disk,Bootsel,ResumeLibrary,Stay,Rebuild,Defaults};
 void open();
 bool active();
 void update(input::Snapshot keys,bool home,uint32_t now_ms);

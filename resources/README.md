@@ -2,7 +2,7 @@
 
 构建时将三个目录分别打包到设备对应的存储区域，文件路径相对各自目录保留：
 
-默认使用本目录；本地自用资源可复制到 Git 忽略的 `resources-local/`。再运行 `TUFTY_RESOURCES_DIR=resources-local TUFTY_ARTIFACT_DIR=dist-local bash tools/build.sh`。这会整体切换输入根目录，不与默认目录合并。首次复制和索引生成步骤见[本地资源构建](../docs/building.md#本地游戏和资源)。
+默认使用本目录；本地自用资源可复制到 Git 忽略的 `resources-local/`。再运行 `TUFTY_RESOURCES_DIR=resources-local TUFTY_ARTIFACT_DIR=dist-local bash tools/build.sh`。这会整体切换输入根目录，不与默认目录合并。目录准备见[本地资源构建](../docs/building.md#本地游戏和资源)。
 
 | 源目录 | 设备位置 | 格式 / 容量 |
 |---|---|---|
@@ -12,9 +12,9 @@
 
 例如 `resources/state/state/nes.json` 对应设备 `/state/nes.json`，不要省略第二层 `state`。默认保留空 `/state` 目录，配置使用程序默认值。
 
-默认 RM1 包含月夜背景 `nes-background.565`（320×240，RGB565 little-endian，无文件头）。替换此文件后重新构建带 ROM 的镜像即可更新。字体仍编入程序。FAT 的 `roms/` 目录包含 Chase、LAN Master、TobuNES、Cargo Shift 四款游戏、各自封面和 `games.idx`；TXT 为主机侧简介源，固件读取索引中的简介。刷入 `with-filesystem` 后可直接从菜单启动。TobuNES 的 NES 2.0 多区域声明默认按 NTSC 运行，原始 ROM 不修改。
+默认 RM1 包含月夜背景 `nes-background.565`（320×240，RGB565 little-endian，无文件头）。替换此文件后重新构建带 ROM 的镜像即可更新。字体仍编入程序。FAT 的 `roms/` 目录包含 Chase、LAN Master、TobuNES、Cargo Shift 四款游戏、各自封面和 JSON 元数据；格式见[使用指南](../docs/usage.md#游戏索引封面和背景)。TobuNES 的 NES 2.0 多区域声明默认按 NTSC 运行，原始 ROM 不修改。
 
-`resources/system/roms/` 是随镜像发布的资源目录。整个 `resources/` 在 Git 中默认忽略，新增资源需使用 `git add -f <具体文件路径>` 明确加入；已有资源仍被跟踪，修改和删除会正常显示，忽略规则不会保护它们免于提交。不要强制添加整个目录，以免带入无关文件。根目录 `roms/` 则用于本地预检和索引准备，除说明文件外均被 Git 忽略。Git 不记录空目录，空的 `state/state/` 使用 `.gitkeep` 占位。忽略规则不影响本地构建；资源目录中的文件仍会进入完整镜像。
+`resources/system/roms/` 是随镜像发布的资源目录。整个 `resources/` 在 Git 中默认忽略，新增资源需使用 `git add -f <具体文件路径>` 明确加入；已有资源仍被跟踪，修改和删除会正常显示，忽略规则不会保护它们免于提交。不要强制添加整个目录，以免带入无关文件。根目录 `roms/` 用于本地素材整理，除说明文件外均被 Git 忽略。Git 不记录空目录，空的 `state/state/` 使用 `.gitkeep` 占位。忽略规则不影响本地构建；资源目录中的文件仍会进入完整镜像。
 
 隐藏文件/目录（包括 `.gitkeep`）不进入镜像；禁止符号链接。FAT 文件名大小写冲突会报错。文件系统容量不足时构建失败，不截断文件。源目录为空时仍生成有效的文件系统。
 

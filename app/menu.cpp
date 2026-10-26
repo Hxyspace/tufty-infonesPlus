@@ -16,6 +16,19 @@
 void tufty_service();
 
 namespace menu {
+void draw_loading(uint16_t *out,uint32_t elapsed) {
+    draw(out,0,0,elapsed);
+    for(unsigned i=0;i<320*240;++i) out[i]=ui::blend(out[i],0,160);
+    constexpr int8_t x[]={0,10,17,20,17,10,0,-10,-17,-20,-17,-10};
+    constexpr int8_t y[]={-20,-17,-10,0,10,17,20,17,10,0,-10,-17};
+    const unsigned head=elapsed/70%12;
+    for(unsigned i=0;i<12;++i) {
+        const unsigned age=(head+12-i)%12;
+        ui::circle(out,160+x[i],108+y[i],3,ui::blend(ui::cyan,ui::rgb(35,40,45),int(age*20)));
+    }
+    ui::rounded_box(out,76,142,168,28,5,ui::rgb(16,20,24));
+    ui::text_centered(out,"Scanning games...",88,142,28,ui::white,144);
+}
 static uint16_t __uninitialized_psram("cover") covers[3][58*80];
 struct Cover { int index=-1; uint32_t generation=0; bool valid=false; };
 static Cover cover_cache[3];

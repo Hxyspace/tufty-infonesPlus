@@ -20,6 +20,10 @@ static int er(const struct lfs_config *c,lfs_block_t b) {
     touched[b]=1; memset(image+b*4096,255,4096); return 0;
 }
 static int sy(const struct lfs_config *c) {(void)c; return 0;}
+static int mark_allocated(void *context,lfs_block_t b) {
+    (void)context; if(b>=256) return LFS_ERR_IO;
+    touched[b]=1; return 0;
+}
 static void check(int rc) {if(rc<0) {fprintf(stderr,"LittleFS image error: %d\n",rc); exit(1);}}
 int main(int argc,char **argv) {
     if(argc<2 || argc%2!=0) return 2;
@@ -42,11 +46,14 @@ int main(int argc,char **argv) {
         if(ferror(in)) return 1;
         fclose(in);check(lfs_file_close(&fs,&file));
     }
+    // Both halves of each metadata pair must replace the old filesystem,
+    // including reserved partners that the fresh image has not written yet.
+    check(lfs_fs_traverse(&fs,mark_allocated,NULL));
     check(lfs_unmount(&fs));
     FILE *out=fopen(argv[1],"wb");if(!out) {perror(argv[1]);return 1;}
     if(fwrite(image,1,sizeof(image),out)!=sizeof(image)) return 1;
     if(fclose(out)) return 1;
-    // Include every block LittleFS used, even when its file payload is all 0xff.
+    // Include written and allocated blocks, even when their contents are all 0xff.
     size_t length=strlen(argv[1])+sizeof(".blocks");
     char *map=malloc(length);if(!map) return 1;
     snprintf(map,length,"%s.blocks",argv[1]);

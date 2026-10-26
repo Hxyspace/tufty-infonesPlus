@@ -1,0 +1,8 @@
+{
+  "name": "Chase",
+  "desc": "Collect every gem in a maze while staying ahead of relentless pursuers. Plan your route, slip around corners, and clear each stage without getting caught.",
+  "developer": "Shiru",
+  "source": "https://github.com/Heathcode/chase",
+  "genre": "Arcade",
+  "players": "1"
+}

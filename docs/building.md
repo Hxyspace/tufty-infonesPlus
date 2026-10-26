@@ -11,7 +11,6 @@
 | 三种镜像打包及完整文件系统测试 | `mkfs.fat`（dosfstools）、`mmd` / `mcopy`（mtools） |
 | PC 手柄发送器 | Python 3、pyserial，见[使用指南](usage.md#pc-手柄) |
 | 主机交互预览 | 主机工具、SDL2 2.0.18+ 开发包及资源镜像工具，见[主机预览](preview.md) |
-| 游戏索引工具 | Python 3.10+；交互排序需要 curses 终端，`--yes` 无需 curses |
 
 源码使用 C11 / C++17。主机测试默认开启 AddressSanitizer 和 UndefinedBehaviorSanitizer。设备固件使用 Release 配置，主机与设备使用不同构建目录。
 
@@ -135,19 +134,15 @@ cmake --build build/core
 
 ### 本地游戏和资源
 
-默认 `resources/system/roms/` 保留仓库附带的四款游戏和索引。本地自用游戏、排序、背景和配置使用单独的资源目录，避免修改默认资源。首次在项目根目录复制：
+默认 `resources/system/roms/` 保留仓库附带的四款游戏及素材，索引由设备生成。本地自用游戏、背景和配置使用单独的资源目录，避免修改默认资源。首次在项目根目录复制：
 
 ```sh
 cp -a resources resources-local
 ```
 
-将自己的游戏、同名封面和简介放入 `roms/`，整理需要部署的游戏，再导出本地游戏包。
-
-索引工具的 `--output` 要求输出目录不存在。首次复制默认资源后，以及每次重新导出前，只清理生成的部署目录，保留输入 `roms/`：
+在 `resources-local/system/roms/` 中放入需要部署的 `.nes`、同名 `.565` 封面和 `.json` 元数据；按需移除不需要的游戏。JSON 格式见[使用指南](usage.md#游戏索引封面和背景)。然后构建：
 
 ```sh
-rm -rf -- resources-local/system/roms
-python3 tools/build_game_index.py --input roms --output resources-local/system/roms
 TUFTY_RESOURCES_DIR=resources-local TUFTY_ARTIFACT_DIR=dist-local bash tools/build.sh
 ```
 

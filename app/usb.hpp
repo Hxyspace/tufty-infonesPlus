@@ -7,6 +7,7 @@ extern tgp::Receiver pad;
 extern bool disk_requested, rescan_requested, save_requested, dirty;
 extern bool boot_requested;
 [[noreturn]] void reboot_bootsel();
+[[noreturn]] void reboot();
 bool consume_disk_request();
 bool disk_mode();
 void init(bool disk);

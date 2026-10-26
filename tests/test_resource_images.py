@@ -97,6 +97,11 @@ with tempfile.TemporaryDirectory(prefix="tufty-resource-test-") as directory:
     default_uf2=(defaults/"tufty-nes-with-filesystem.uf2").read_bytes()
     full.write_bytes(apply_uf2(default_uf2,dirty))
     subprocess.run([sys.argv[1],str(full),"defaults","packed"],check=True)
+    # Real runtime edits can compact /state into its initially erased metadata
+    # partner. Reflashing must erase that old revision too, not resurrect it.
+    subprocess.run([sys.argv[1],str(full),"defaults","packed_state_churn"],check=True)
+    full.write_bytes(apply_uf2(default_uf2,bytearray(full.read_bytes())))
+    subprocess.run([sys.argv[1],str(full),"defaults","packed"],check=True)
     # ROMFS-only updates must preserve existing System/State bytes exactly.
     rom_only=(defaults/"tufty-nes-with-romfs.uf2").read_bytes()
     before=bytes(dirty[0x300000:])
