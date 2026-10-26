@@ -81,8 +81,8 @@ static void serial_tests() {
     r.poll(2350); assert(!r.input.home && ble.home); // Serial timeout is isolated.
     r.reset(); assert(ble.home);
 
-    // Repeated serial heartbeats must preserve the shared L3+R3 hold timer.
-    hello(r,3000); std::memcpy(report,neutral,10); report[6]=0x60; seq=0;
+    // Repeated serial heartbeats must preserve the shared LB+RB hold timer.
+    hello(r,3000); std::memcpy(report,neutral,10); report[5]=0xc0; seq=0;
     for(uint32_t at=3000;at<=4440;at+=120) {
         line(r,frame(report,seq++),at); assert(!r.poll(at) && !r.input.home);
     }
@@ -94,7 +94,7 @@ static void serial_tests() {
     r.reset(); assert(!r.input.home && !r.input.nes());
 
     // A new nonce replaces held input and all gesture/hysteresis state.
-    hello(r,7000); report[6]=16; line(r,frame(report,0),7000); assert(r.input.home);
+    hello(r,7000); std::memcpy(report,neutral,10); report[6]=16; line(r,frame(report,0),7000); assert(r.input.home);
     line(r,"#TGP:HELLO:0001:fedcba9876543210:3\n",7010);
     assert(!r.input.home && !r.input.nes() && !r.seen);
     line(r,frame(neutral,0),7020); assert(r.received);

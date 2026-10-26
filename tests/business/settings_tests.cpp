@@ -375,9 +375,29 @@ int main() {
         std::strcpy(found[i].name,"Test gamepad");
     }
     radio.discovering=false; settings::update({},false,now+=10000);
+    // Reverse direction within the visible five rows without scrolling back.
+    focus(6); present();
+    assert(frame[(74+4*24+6)*320+15]==ui::cyan);
+    const std::vector<uint16_t> window_before=frame;
+    press(input::PagePrevious); present();
+    assert(settings::focus()==5 && frame[(74+3*24+6)*320+15]==ui::cyan);
+    for(int y=74;y<194;++y) assert(frame[y*320+309]==window_before[y*320+309]);
+    focus(2); present();
+    assert(frame[80*320+15]==ui::cyan);
+    for(int y=74;y<194;++y) assert(frame[y*320+309]==window_before[y*320+309]);
+    press(input::PagePrevious); present();
+    assert(settings::focus()==1 && frame[80*320+15]==ui::cyan);
+    assert(frame[81*320+309]!=window_before[81*320+309]);
+    // Opening a device and returning preserves this list's window.
+    focus(6); press(input::PagePrevious);
+    press(input::Confirm); assert(settings::page()==settings::Page::Device);
+    back(); present();
+    assert(settings::page()==settings::Page::Search && settings::focus()==5);
+    assert(frame[(74+3*24+6)*320+15]==ui::cyan);
+    focus(0);
     snapshot("search-long-top"); focus(16); snapshot("search-long-bottom");
     present();
-    assert(frame[193*320+309]==ui::dim);
+    assert(frame[193*320+309]==ui::rgb(229,218,194));
     assert(frame[210*320+150]==ui::rgb(171,163,146));
     for(int y=32;y<208;++y) assert(frame[y*320+319]==ui::rgb(229,218,194));
     // Left reaches the title from any row, without exiting on the same press
@@ -567,4 +587,23 @@ int main() {
     home(); input::hub.local(0); present();
     assert(resets==3 && settings::take_exit()==settings::Exit::Library);
     assert(!configuration::changed() && !library::pending());
+    // The game list shares the same scrolling, clamps after deletions, and
+    // returns to the first window after moving a game to the front.
+    storage::count=17;
+    root(); enter(3,settings::Page::System); enter(0,settings::Page::GameLibrary);
+    enter(0,settings::Page::GameOrder);
+    focus(6); press(input::PagePrevious); present();
+    assert(frame[(74+3*24+6)*320+15]==ui::cyan);
+    back(); enter(0,settings::Page::GameOrder); present();
+    assert(settings::focus()==5 && frame[(74+3*24+6)*320+15]==ui::cyan);
+    press(input::Confirm); present(); present();
+    assert(settings::focus()==0 && frame[80*320+15]==ui::cyan);
+    assert(frame[74*320+309]==ui::rgb(229,218,194));
+    focus(16); storage::count=7; present();
+    assert(settings::focus()==6 && frame[(74+4*24+6)*320+15]==ui::cyan);
+    storage::count=3; present();
+    assert(settings::focus()==2 && frame[(74+2*24+6)*320+15]==ui::cyan);
+    assert(frame[74*320+309]==ui::rgb(16,20,24)); // No scrollbar for a short list.
+    storage::count=0; present();
+    assert(settings::focus()==0 && frame[80*320+15]!=ui::cyan);
 }

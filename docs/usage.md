@@ -52,7 +52,7 @@ python3 tools/serial_gamepad.py --port /dev/ttyACM1 --buttons 0x80 --seconds 3
 1. 开启实体手柄，或在安卓应用中选择 NES / XTARK HID 模式并点“开启手柄”。
 2. Tufty 默认自动扫描连接，也可在 Settings 的 Bluetooth 中选择设备。
 3. 十字键或左摇杆控制方向，A 启动游戏；游戏中使用 A/B、Select/Start。十字键优先于摇杆，右摇杆和肩键不映射 NES 操作。
-4. 返回菜单时，将两个摇杆回中，松开其他按键及扳机，同时按下左右摇杆（L3+R3）并保持 **1.5 秒**。触发后松开两个摇杆按键，再进行下一步操作。安卓可直接使用 Home，也可按 Tufty 自身的 Home。
+4. 返回菜单时，将两个摇杆回中，松开其他按键及扳机，同时按下左右肩键（LB+RB）并保持 **1.5 秒**。触发后松开两个肩键，再进行下一步操作。安卓可直接使用 Home，也可按 Tufty 自身的 Home。
 
 实体 XTARK 在 XTARK HID 模式下的 Home 键不发送游戏输入，使用上述组合键即可。
 

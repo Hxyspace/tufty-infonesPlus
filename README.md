@@ -51,7 +51,7 @@ bash tools/test.sh
 | 游戏上 / 下 / 左 / 右 | Up / Down / A / C | 方向键或 WASD |
 | 退出当前应用回首页 | Home | Esc（TGP v3） |
 
-HID 手柄使用 Home，或摇杆回中并同时按住 L3+R3 1.5 秒返回菜单。TGP v1/v2 使用本机 Home。串口与 BLE 同时连接时使用一个活跃远程来源，本机按键始终可用。
+HID 手柄使用 Home，或摇杆回中并同时按住 LB+RB 1.5 秒返回菜单。TGP v1/v2 使用本机 Home。串口与 BLE 同时连接时使用一个活跃远程来源，本机按键始终可用。
 
 ## 文档
 

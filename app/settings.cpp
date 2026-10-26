@@ -23,6 +23,8 @@ bool unsaved() {return configuration::changed() || library::pending();}
 enum class Dialog {None,Confirm,SaveError,Brightness,SleepTime,ControllerId};
 Page current=Page::Root;
 unsigned focuses[unsigned(Page::Count)]{};
+unsigned first_rows[unsigned(Page::Count)]{};
+constexpr unsigned visible_rows=5;
 bool opened=false,searching=false,search_flow=false,saving=false,waiting_release=false;
 bool search_started=false;
 bool save_bypassed=false;
@@ -225,6 +227,12 @@ void model(uint32_t now=0,Page view=Page::Count) {
     }
     auto &focus=focuses[unsigned(view)];
     focus=std::min(focus,row_count?row_count-1:0);
+    // Keep the window still until focus crosses an edge; retain it per page
+    // when returning from a child page, and clamp it if the list shrinks.
+    auto &first=first_rows[unsigned(view)];
+    if(focus<first) first=focus;
+    else if(focus-first>=visible_rows) first=focus-visible_rows+1;
+    first=std::min(first,row_count>visible_rows?row_count-visible_rows:0);
 }
 void back() {
     if(dialog!=Dialog::None) {dialog=Dialog::None; target=Exit::None; barrier(); return;}
@@ -599,7 +607,6 @@ void draw(uint16_t *out) {
     // The body starts below the independent title band. Its panel keeps
     // six pixels clear on every side, regardless of the number of rows.
     constexpr int body_top=62,panel_margin=6,row_top=74,row_height=24;
-    constexpr unsigned visible_rows=5;
     const int content_x=split?106:1;
     const int left=content_x+12,label_x=left+8;
     if(split) {
@@ -628,7 +635,7 @@ void draw(uint16_t *out) {
         ui::text_centered(out,"<",14,bar+2,27,ui::cyan,12);
         ui::text_centered(out,titles[unsigned(current)],30,bar+2,27,ui::white,280);
     }
-    const unsigned first=row_focus>=visible_rows?row_focus-(visible_rows-1):0;
+    const unsigned first=first_rows[unsigned(view)];
     const unsigned last=std::min(row_count,first+visible_rows);
     ui::rounded_box(out,content_x+panel_margin,body_top+panel_margin,
         318-content_x-2*panel_margin,bottom-1-body_top-2*panel_margin,5,surface);
@@ -649,7 +656,7 @@ void draw(uint16_t *out) {
         const int thumb=std::max(6,int(visible_rows*track_height/row_count));
         const int offset=int(first*(track_height-thumb)/(row_count-visible_rows));
         ui::box(out,309,row_top,2,track_height,separator);
-        ui::box(out,309,row_top+offset,2,thumb,ui::dim);
+        ui::box(out,309,row_top+offset,2,thumb,edge);
     }
     ui::box(out,0,bar,1,bottom-bar,edge);
     ui::box(out,318,bar+1,1,bottom-bar-2,separator);

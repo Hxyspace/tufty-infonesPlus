@@ -428,25 +428,27 @@ int main(int argc,char **argv) {
         }
         if(!std::strcmp(argv[1],"home_combo")) {
             event({BTSTACK_EVENT_STATE,1,HCI_STATE_WORKING}); advertise(); linked(); ready();
-            report(255,0,0x60); advance(1499); assert(!ble::home() && !ble::buttons());
-            report(255,0,0x60); // Repeated reports must not restart the hold timer.
+            report(255,0,0x60); advance(2000); assert(!ble::home()); // Stick clicks no longer trigger Home.
+            report(255);
+            report(255,0xc0); advance(1499); assert(!ble::home() && !ble::buttons());
+            report(255,0xc0); // Repeated reports must not restart the hold timer.
             advance(1); assert(ble::home() && !ble::buttons());
             unsigned fired_activity=activity; advance(10000); assert(activity==fired_activity);
-            report(255,1,0x20); assert(ble::home() && !ble::buttons()); // Release both to clear latch.
+            report(255,0x41); assert(ble::home() && !ble::buttons()); // Release both to clear latch.
             report(255); assert(!ble::home()); report(255,1); assert(ble::buttons()==gamepad::A);
-            report(255,0,0x60); advance(1000); report(255); advance(1000); assert(!ble::home());
-            report(255,0,0x20); advance(2000); assert(!ble::home()); // One click is insufficient.
-            report(0,0,0x60); advance(2000); assert(!ble::home()); // D-pad pressed.
-            report(255,1,0x60); advance(2000); assert(!ble::home()); // Another button pressed.
-            sample({0,128,128,128,255,0,0x60,0,0,0}); advance(2000); assert(!ble::home());
-            sample({128,128,255,128,255,0,0x60,0,0,0}); advance(2000); assert(!ble::home());
-            sample({128,128,128,128,255,0,0x60,0,1,0}); advance(2000); assert(!ble::home());
-            report(255,0,0x60); advance(1000);
+            report(255,0xc0); advance(1000); report(255); advance(1000); assert(!ble::home());
+            report(255,0x40); advance(2000); assert(!ble::home()); // One shoulder is insufficient.
+            report(0,0xc0); advance(2000); assert(!ble::home()); // D-pad pressed.
+            report(255,0xc1); advance(2000); assert(!ble::home()); // Another button pressed.
+            sample({0,128,128,128,255,0xc0,0,0,0,0}); advance(2000); assert(!ble::home());
+            sample({128,128,255,128,255,0xc0,0,0,0,0}); advance(2000); assert(!ble::home());
+            sample({128,128,128,128,255,0xc0,0,0,1,0}); advance(2000); assert(!ble::home());
+            report(255,0xc0); advance(1000);
             hid({HCI_EVENT_GATTSERVICE_META,5,GATTSERVICE_SUBEVENT_HID_REPORT,7,0,0,4});
             advance(1000); assert(!ble::home()); // Malformed input cancels the gesture.
-            report(255,0,0x60); disconnected(); advance(2000); assert(!ble::home());
+            report(255,0xc0); disconnected(); advance(2000); assert(!ble::home());
             advertise(); linked(); ready();
-            clock_ms=0xffffff00u; report(255,0,0x60); advance(1500); assert(ble::home());
+            clock_ms=0xffffff00u; report(255,0xc0); advance(1500); assert(ble::home());
             report(255); assert(!ble::home()); report(255,0,0x10); assert(ble::home()); // Android Home.
             assert(!disconnects && !off); ble::shutdown(); return 0;
         }

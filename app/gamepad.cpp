@@ -54,8 +54,8 @@ void Receiver::update(const ControllerState &value,uint32_t now) {
         if(stick_y<0) directions|=North;
         if(stick_y>0) directions|=South;
     }
-    if(!(state.keys&(KeyL3|KeyR3))) combo_latched=false; // Release both clicks to re-arm.
-    bool candidate=selected && state.keys==(KeyL3|KeyR3) && !state.dpad &&
+    if(!(state.keys&(KeyLB|KeyRB))) combo_latched=false; // Release both shoulders to re-arm.
+    bool candidate=selected && state.keys==(KeyLB|KeyRB) && !state.dpad &&
         centered(state.left_x) && centered(state.left_y) && centered(state.right_x) && centered(state.right_y) &&
         !state.lt && !state.rt;
     if(candidate && !combo_holding) combo_at=now;

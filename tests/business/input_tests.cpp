@@ -105,15 +105,17 @@ int main() {
     hub.enable(Source::Serial,false); assert(hub.active_remote()==Source::None && !hub.nes());
     hub.local(input::LocalHome); assert(hub.home()); hub.local(0);
     hub.enable(Source::Ble,true); send(ble); send(ble,0x6000,255,100);
-    ble.poll(1599); assert(!hub.home()); ble.poll(1600); assert(hub.home());
+    ble.poll(1600); assert(!hub.home()); // Stick clicks no longer trigger Home.
+    send(ble); send(ble,0x00c0,255,1700);
+    ble.poll(3199); assert(!hub.home()); ble.poll(3200); assert(hub.home());
     send(ble); hub.clear_events(); send(ble,1); send(ble);
     assert(hub.take_menu().pressed==input::Confirm);
     hub.clear_events(); send(ble,1); hub.clear_events();
     assert(!hub.take_menu().pressed); send(ble); send(ble,1); assert(hub.take_menu().pressed==input::Confirm);
 
     // A non-selected source cannot complete Home, even after a long idle interval.
-    hub.enable(Source::Serial,true); send(serial,0x6000,255,2000); serial.poll(10000); assert(!serial.home);
-    send(ble,0x2000,255,2000); send(serial,0x4000,255,2000); ble.poll(10000); assert(!hub.home());
+    hub.enable(Source::Serial,true); send(serial,0x00c0,255,4000); serial.poll(10000); assert(!serial.home);
+    send(ble,0x0040,255,4000); send(serial,0x0080,255,4000); ble.poll(10000); assert(!hub.home());
     // A healthy BLE source keeps its selection without notifications.
     assert(hub.active_remote()==Source::Ble);
 
