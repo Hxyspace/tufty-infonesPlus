@@ -332,10 +332,12 @@ std::uint64_t machine(bool output,int region){
 #ifndef APU_LEGACY_REFERENCE
   assert(output || output_calls==0);
 #endif
-  static constexpr std::uint64_t baseline[]={0x0a1e0e55c9ce8d2eull,0x72b3dcbac7228122ull,0xe509cb95316a2838ull};
-  // Recorded with the independently compiled pre-optimization implementation.
-  assert(h==baseline[region]);
+  // Recorded with the independently compiled pre-optimization implementation;
+  // Dendy uses the corrected 113 2/3-cycle scanline and 35464-cycle frame.
+  static constexpr std::uint64_t baseline[]={0x0a1e0e55c9ce8d2eull,0x72b3dcbac7228122ull,0x28ff7552a9d350c1ull};
   std::printf("machine region=%d output=%d digest=%016llx samples=%u output_hash=%016llx\n",region,output,(unsigned long long)h,sample_count,(unsigned long long)output_hash);
+  std::fflush(stdout);
+  assert(h==baseline[region]);
   cleanup();return h;
 }
 void lifecycle(){

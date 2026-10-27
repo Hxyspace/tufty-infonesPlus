@@ -164,25 +164,25 @@ extern BYTE PPU_UpDown_Clip;
 //          SCAN_VBLANK_START=241, SCAN_VBLANK_END=261  (262 lines @ 60.0988 Hz)
 //   PAL  : STEP_PER_SCANLINE=107, STEP_PER_FRAME=33247,
 //          SCAN_VBLANK_START=241, SCAN_VBLANK_END=311  (312 lines @ 50.007 Hz)
-//   Dendy: STEP_PER_SCANLINE=107, STEP_PER_FRAME=33247,
-//          SCAN_VBLANK_START=291, SCAN_VBLANK_END=311  (312 lines @ 50 Hz,
-//          NTSC-style 21-line vblank — PAL CPU clock with later vblank start)
+//   Dendy: STEP_PER_SCANLINE=114 minus 1/3, STEP_PER_FRAME=35464,
+//          SCAN_VBLANK_START=291, SCAN_VBLANK_END=311  (312 lines @ 50.007 Hz,
+//          CPU 1.773448 MHz, late 21-line vblank)
 extern WORD STEP_PER_SCANLINE;
 extern WORD STEP_PER_FRAME;
 extern WORD SCAN_VBLANK_START;
 extern WORD SCAN_VBLANK_END;
 
 // A scanline is not a whole number of CPU cycles: 341 PPU dots is 113 2/3 CPU
-// cycles on NTSC. Stepping a flat STEP_PER_SCANLINE of 114 therefore runs an
+// cycles on NTSC and Dendy. A flat STEP_PER_SCANLINE of 114 therefore runs an
 // NTSC frame 88 cycles long, every frame, always in the same direction.
 //
 // SCANLINE_FRAC_NUM/DEN is the fraction of a cycle a scanline hands back: the
 // emulation loop keeps a free-running accumulator and drops one cycle from the
 // line each time it wraps, so the frame averages the length hardware makes it
-// (29780 2/3 with 1/3 on NTSC). It is 0 - the flat scanline this core has
-// always run - for every ROM except those listed in Ntsc_Exact_Frame_Crcs in
-// InfoNES.cpp, because the change is not free for other games; that list says
-// which ones and why.
+// (29780 2/3 on NTSC, 35464 on Dendy, with a fraction of 1/3). Dendy always
+// uses 1/3 so its short vblank has the correct CPU budget. NTSC opts in only
+// for ROMs listed in Ntsc_Exact_Frame_Crcs in InfoNES.cpp; other NTSC ROMs
+// and PAL retain their existing flat scanline budget (fraction 0).
 //
 // Games do notice. The usual region-detection idiom spins a delay loop tuned
 // to just outrun one NTSC frame and then reads $2002 to see whether vblank has
@@ -413,8 +413,8 @@ void InfoNES_SetRegion(int region);
 /* Returns the currently selected region (0/1/2). */
 int InfoNES_GetRegion();
 
-/* True for PAL or Dendy (anything that uses the PAL CPU clock + 50 Hz pacing
-   + PAL APU period tables). Used by audio init and frame pacing. */
+/* True for PAL or Dendy (50 Hz family). Used by audio init and frame pacing;
+   both currently select PAL APU period tables. */
 bool InfoNES_IsPal();
 
 /* The loop of emulation */

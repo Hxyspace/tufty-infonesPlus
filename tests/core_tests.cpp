@@ -21,6 +21,8 @@ static std::size_t allocations=0;
 static int fail_at=-1, attempts=0;
 static int sound_capacity=APU_MAX_SAMPLES_PER_SYNC;
 static bool sound_output=true;
+static bool check_dendy_scroll=false;
+static unsigned restored_scroll_lines=0;
 static std::array<unsigned,240> drawn{};
 static std::vector<BYTE> prg(32768),chr(8192);
 namespace infones::port {
@@ -47,7 +49,18 @@ void InfoNES_SoundClose(){}
 bool InfoNES_HasSoundOutput(){return sound_output;}
 int InfoNES_GetSoundBufferSize(){return sound_capacity;}
 void InfoNES_SoundOutput(int n,BYTE *a,BYTE *,BYTE *,BYTE *,BYTE *,BYTE *){assert(n>=0&&n<=APU_MAX_SAMPLES_PER_SYNC);samples+=n; if(n)assert(a);}
-void InfoNES_PreDrawLine(int y){assert(y>=0&&y<240);InfoNES_SetLineBuffer(frame.data()+y*256,256);}
+void InfoNES_PreDrawLine(int y){
+  assert(y>=0&&y<240);
+  if(check_dendy_scroll && y==0 && frames>0){
+    // The NMI writes VRAM, then restores a 40-pixel vertical scroll. It must
+    // finish before the pre-render line copies t to v for the next frame.
+    assert((PPU_Addr&0x73e0)==0x00a0);
+    assert((PPU_Addr&0x7be0)==(PPU_Temp&0x7be0));
+    assert(RAM[3]==frames);
+    ++restored_scroll_lines;
+  }
+  InfoNES_SetLineBuffer(frame.data()+y*256,256);
+}
 void InfoNES_PostDrawLine(int y){++drawn[y];}
 
 static void image(unsigned mapper) {
@@ -94,6 +107,27 @@ static void mapper48() {
     assert(PPUBANK[4+slot]==VROM+(v%8)*1024);
   }
   InfoNES_Fin();assert(allocations==0);
+}
+static void dendy_vblank_scroll() {
+  image(0);InfoNES_SetRegion(INFONES_REGION_DENDY);
+  // Enable rendering/NMI, then wait. The handler resets the VRAM address and
+  // spends about 2300 CPU cycles on an update before restoring $2005.
+  const BYTE reset[]={0x78,0xd8,0xa2,0xff,0x9a,
+    0xa9,0x0a,0x8d,0x01,0x20,0xa9,0x80,0x8d,0x00,0x20,0x4c,0x0f,0x80};
+  const BYTE nmi[]={0x48,0x8a,0x48,0x98,0x48,
+    0xa9,0x20,0x8d,0x06,0x20,0xa9,0x00,0x8d,0x06,0x20,
+    0xa0,0x02,0xa2,0xe6,0xca,0xd0,0xfd,0x88,0xd0,0xf8,
+    0xa9,0x00,0x8d,0x05,0x20,0xa9,0x28,0x8d,0x05,0x20,
+    0xe6,0x03,0x68,0xa8,0x68,0xaa,0x68,0x40};
+  std::copy(std::begin(reset),std::end(reset),prg.begin());
+  std::copy(std::begin(nmi),std::end(nmi),prg.begin()+0x100);
+  prg[0x7ffa]=0;prg[0x7ffb]=0x81;
+  assert(InfoNES_Init());assert(InfoNES_Reset()==0);
+  frames=services=samples=restored_scroll_lines=0;check_dendy_scroll=true;
+  InfoNES_Cycle();check_dendy_scroll=false;
+  assert(frames==4 && restored_scroll_lines==3);
+  InfoNES_Fin();assert(allocations==0);
+  InfoNES_SetRegion(INFONES_REGION_NTSC);
 }
 static void clipping() {
   image(0);assert(InfoNES_Init());assert(InfoNES_Reset()==0);
@@ -209,7 +243,7 @@ static void cartridge_loading() {
   assert(infones_adapter::load(rom.data(),rom.size(),&error));
   // Resolve legal multi-region headers to the same timing used by the host
   // frame clock. Loading after PAL/Dendy must not inherit the previous region.
-  for(unsigned timing:{1,2,3,2,0}) {
+  for(unsigned timing:{1,2,3,1,3,2,0}) {
     rom[12]=timing;
     const auto original=rom;
     const auto expected=timing==2?0:timing;
@@ -218,6 +252,9 @@ static void cartridge_loading() {
     assert(infones_adapter::load(rom.data(),rom.size(),&error) && !error);
     assert(InfoNES_GetRegion()==(expected==1?INFONES_REGION_PAL:
            expected==3?INFONES_REGION_DENDY:INFONES_REGION_NTSC));
+    assert(SCANLINE_FRAC_NUM==(expected==3?1:0));
+    assert(SCANLINE_FRAC_DEN==(expected==3?3:1));
+    if(expected==3)assert(STEP_PER_SCANLINE==114 && STEP_PER_FRAME==35464);
     assert(NesHeader.byReserve[4]==timing && rom==original);
   }
   for(unsigned timing:{4,6,0xfe}) {
@@ -420,6 +457,6 @@ static void sunsoft69() {
   rom=banked_cartridge(69,0,true);rom[11]=7;
   assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error) && error);
 }
-int main(){nrom();mapper48();clipping();cpu_operands();audio_backpressure();
+int main(){nrom();dendy_vblank_scroll();mapper48();clipping();cpu_operands();audio_backpressure();
   cartridge_loading();lifecycle_and_oom();admitted_bank_bounds();mmc3_appended_chr();sunsoft69();newly_admitted_boards();
   puts("core cartridge regression passed");}

@@ -831,7 +831,7 @@ void InfoNES_SetRegion(int region)
 {
   s_region = region;
   /* Cleared for every ROM: these outlive a single game, the menu comes back
-     between them, and only the ROMs listed below opt in. */
+     between them, and region/CRC overrides must not leak into the next ROM. */
   SCANLINE_FRAC_NUM = 0;
   SCANLINE_FRAC_DEN = 1;
   ScanlineFrac = 0;
@@ -850,10 +850,12 @@ void InfoNES_SetRegion(int region)
     break;
 
   case INFONES_REGION_DENDY:
-    // Dendy: PAL CPU clock + 312-line frame, but NTSC-style late vblank
-    // (vblank 291..311). Post-render extends from line 240 to 290.
-    STEP_PER_SCANLINE = 107;
-    STEP_PER_FRAME    = 33247;
+    // Dendy: CPU 1.773448 MHz, 341/3 CPU cycles/line, 312 lines/frame.
+    // Late vblank is 291..311; post-render extends from line 240 to 290.
+    STEP_PER_SCANLINE = 114;
+    STEP_PER_FRAME    = 35464;
+    SCANLINE_FRAC_NUM = 1;
+    SCANLINE_FRAC_DEN = 3;
     SCAN_VBLANK_START = 291;
     SCAN_VBLANK_END   = 311;
     break;
@@ -1005,10 +1007,9 @@ void __not_in_flash_func(InfoNES_Cycle)()
     PPU_R1_Line = PPU_R1;
 
     // This line's CPU budget: STEP_PER_SCANLINE, minus the cycle the
-    // fractional accumulator hands back when it wraps. Zero for every ROM
-    // except the few listed in Ntsc_Exact_Frame_Crcs, which need the frame to
-    // be the length real hardware makes it. See SCANLINE_FRAC_NUM in
-    // InfoNES.h.
+    // fractional accumulator hands back when it wraps. Used by Dendy and
+    // the NTSC ROMs listed in Ntsc_Exact_Frame_Crcs; other ROMs retain their
+    // flat scanline budget. See SCANLINE_FRAC_NUM in InfoNES.h.
     int nScanlineStep = STEP_PER_SCANLINE;
     ScanlineFrac += SCANLINE_FRAC_NUM;
     if (ScanlineFrac >= SCANLINE_FRAC_DEN)
