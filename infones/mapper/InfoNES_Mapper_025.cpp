@@ -118,9 +118,9 @@ void Map25_Write( WORD wAddr, BYTE byData )
    * swapping them, so a single decode serves every variant. The other
    * address lines are not decoded by the mapper, so writes such as
    * $8FFF (Teenage Mutant Ninja Turtles) land on the right register. */
-  wAddr = ( wAddr & 0xF000 )
-        | ( ( ( ( wAddr >> 2 ) | wAddr ) & 0x0001 ) << 1 )
-        | ( ( ( ( wAddr >> 2 ) | wAddr ) & 0x0002 ) >> 1 );
+  // NES 2.0 VRC4d selects one wiring, so A0/A1 must not select registers.
+  const WORD select = SubMapperNo == 2 ? wAddr >> 2 : ( wAddr >> 2 ) | wAddr;
+  wAddr = ( wAddr & 0xF000 ) | ( ( select & 1 ) << 1 ) | ( ( select & 2 ) >> 1 );
 
   switch ( wAddr )
   {

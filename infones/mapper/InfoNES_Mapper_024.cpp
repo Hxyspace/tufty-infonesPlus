@@ -51,6 +51,10 @@ void Map24_Init()
   ROMBANK2 = ROMLASTPAGE( 1 );
   ROMBANK3 = ROMLASTPAGE( 0 );
 
+  Map24_IRQ_Count = 0;
+  Map24_IRQ_State = 0;
+  Map24_IRQ_Latch = 0;
+
   /* Set up wiring of the interrupt pin */
   K6502_Set_Int_Wiring( 1, 1 );
 

@@ -5,7 +5,7 @@
 
 namespace nes {
 // Public loader admission; retained mapper implementations may exceed this.
-inline constexpr std::array<std::uint16_t,9> admitted_mappers = {0,1,2,3,4,7,48,66,69};
+inline constexpr std::array<std::uint16_t,12> admitted_mappers = {0,1,2,3,4,7,24,25,48,66,69,268};
 struct Cartridge {
   std::array<std::uint8_t,16> header{};
   std::size_t prg_offset=0, prg_size=0, chr_size=0;

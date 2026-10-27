@@ -188,6 +188,29 @@ class RomTests(unittest.TestCase):
             data[10] = ram
             self.assertFalse(review(bytes(data), {}, {67}).error)
 
+    def test_new_boards_preserve_extended_mapper_and_submapper(self):
+        for mapper, sub in ((24, 0), (25, 0), (25, 2), (268, 0)):
+            with self.subTest(mapper=mapper, sub=sub):
+                data = bytearray(self.data)
+                data[6] = (mapper & 15) << 4 | 4  # Keep the fixture's trainer.
+                data[7] = (mapper & 0xf0) | 8
+                data[8] = (sub << 4) | (mapper >> 8)
+                result = review(bytes(data), {}, supported_mappers())
+                self.assertFalse(result.error)
+                self.assertEqual(result.fixed, data)
+                self.assertTrue(any(f"mapper={mapper} " in note for note in result.notes))
+                for unsupported in (1, 3, 15):
+                    data[8] = (unsupported << 4) | (mapper >> 8)
+                    self.assertTrue(review(bytes(data), {}, supported_mappers()).error)
+
+    def test_nes2_checksum_correction_updates_all_mapper_bits(self):
+        data = bytearray(self.data)
+        data[6:9] = bytes((0xc4, 8, 1))  # Mapper 268, trainer, no submapper.
+        result = review(bytes(data), self.rules, {2, 268})
+        self.assertFalse(result.error)
+        self.assertEqual(result.fixed[6:9], bytes((0x24, 8, 0)))
+        self.assertEqual(result.fixed[9:], data[9:])
+
     def test_backup_and_repeat_are_lossless(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

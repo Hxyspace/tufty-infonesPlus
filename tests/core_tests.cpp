@@ -244,11 +244,12 @@ static void cartridge_loading() {
 }
 static void admitted_bank_bounds() {
   for(auto mapper:nes::admitted_mappers)for(bool large:{false,true}){
-    unsigned prg_banks=large && mapper!=0 && mapper!=3?32:2;
+    unsigned prg_banks=large && mapper!=0 && mapper!=3?(mapper==24 || mapper==25?16:32):2;
     unsigned chr_banks=mapper==2 || mapper==7?0:large && mapper!=0?mapper==3?4:32:1;
     std::vector<BYTE> rom(16+prg_banks*16384+chr_banks*8192);
     std::memcpy(rom.data(),"NES\x1a",4);rom[4]=prg_banks;rom[5]=chr_banks;
     rom[6]=(mapper&15)<<4;rom[7]=mapper&0xf0;
+    if(mapper>255){rom[7]|=8;rom[8]=mapper>>8;}
     const char *error=nullptr;
     assert(nes::infones_adapter::load(rom.data(),rom.size(),&error));
     const auto inside=[](const BYTE *p,const BYTE *base,std::size_t bytes,std::size_t window){
@@ -272,6 +273,7 @@ static std::vector<BYTE> banked_cartridge(unsigned mapper,unsigned chr_banks,boo
   std::vector<BYTE> rom(16+prg_bytes+chr_banks*8192);
   std::memcpy(rom.data(),"NES\x1a",4);rom[4]=8;rom[5]=chr_banks;
   rom[6]=(mapper&15)<<4;rom[7]=(mapper&0xf0)|(nes2?8:0);
+  if(nes2)rom[8]=mapper>>8;
   for(unsigned n=0;n<prg_bytes/8192;++n)std::fill_n(rom.data()+16+n*8192,8192,n);
   for(unsigned n=0;n<chr_banks*8;++n)std::fill_n(rom.data()+16+prg_bytes+n*1024,1024,n);
   return rom;
@@ -297,6 +299,74 @@ static void mmc3_appended_chr() {
   assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error) && error);
   rom=banked_cartridge(4,33);
   assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error) && error);
+}
+static void newly_admitted_boards() {
+  const char *error=nullptr;
+  // VRC6: 16 KiB / 8 KiB PRG windows, eight independent CHR banks, clean IRQ reset.
+  auto rom=banked_cartridge(24,16,true);
+  assert(nes::infones_adapter::load(rom.data(),rom.size(),&error));
+  for(unsigned value=0;value<256;++value){
+    MapperWrite(0x8003,value);
+    assert(ROMBANK0==ROM+((value&15)*2%16)*8192 && ROMBANK1==ROM+(((value&15)*2+1)%16)*8192);
+    MapperWrite(0xc003,value);assert(ROMBANK2==ROM+((value&31)%16)*8192);
+    for(unsigned slot=0;slot<8;++slot){
+      MapperWrite((slot<4?0xd000:0xe000)+(slot%4),value);
+      assert(PPUBANK[slot]==VROM+(value%128)*1024);
+    }
+  }
+  MapperWrite(0xf000,0xfe);MapperWrite(0xf001,2);
+  MapperHSync();assert(IRQ_State==IRQ_Wiring);
+  MapperHSync();assert(IRQ_State!=IRQ_Wiring);
+  MapperWrite(0xf002,0);assert(IRQ_State==IRQ_Wiring);
+  MapperWrite(0xf000,0xff);MapperWrite(0xf001,2);
+  assert(InfoNES_Reset()==0);
+  for(unsigned n=0;n<300;++n)MapperHSync();
+  assert(IRQ_State==IRQ_Wiring);
+  nes::infones_adapter::unload();assert(allocations==0);
+
+  // NES 2.0 25.2 decodes A3/A2 only: A0/A1 are mirrors, not another wiring.
+  rom=banked_cartridge(25,32,true);rom[8]=0x20;
+  const auto original=rom;
+  assert(nes::infones_adapter::load(rom.data(),rom.size(),&error));
+  assert(MapperNo==25 && SubMapperNo==2 && NesHeader.byReserve[0]==0x20);
+  MapperWrite(0x8fff,5);assert(ROMBANK0==ROM+5*8192);
+  MapperWrite(0x9004,2);assert(ROMBANK0==ROM+14*8192 && ROMBANK2==ROM+5*8192);
+  for(unsigned slot=0;slot<8;++slot)for(unsigned value=0;value<256;++value){
+    const WORD address=0xb000+(slot/2)*0x1000+(slot%2)*4;
+    MapperWrite(address|3,value&15);MapperWrite((address+8)|3,value>>4);
+    assert(PPUBANK[slot]==VROM+value*1024);
+  }
+  assert(rom==original);
+  nes::infones_adapter::unload();assert(allocations==0);
+  for(BYTE sub:{1,3,15}){
+    rom[8]=sub<<4;assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error));
+  }
+
+  // COOLBOY's outer registers must reach the extended mapper, not mapper 12.
+  rom=banked_cartridge(268,32,true);
+  assert(nes::infones_adapter::load(rom.data(),rom.size(),&error));
+  assert(MapperNo==268 && SubMapperNo==0);
+  MapperWrite(0x8000,6);MapperWrite(0x8001,5);assert(ROMBANK0==ROM+5*8192);
+  MapperWrite(0x8000,0);MapperWrite(0x8001,0xc4);assert(PPUBANK[0]==VROM+196*1024);
+  MapperSram(0x6000,0x80);assert(PPUBANK[0]==VROM+68*1024);
+  MapperSram(0x6000,0x88);assert(PPUBANK[0]==VROM+196*1024);
+  MapperSram(0x6002,3);MapperSram(0x6003,0x14);
+  assert(ROMBANK0==ROM+4*8192 && ROMBANK1==ROM+5*8192);
+  for(unsigned slot=0;slot<8;++slot)assert(PPUBANK[slot]==VROM+(152+slot)*1024);
+  MapperSram(0x6003,0x80); // Lock outer registers; subsequent writes are ignored.
+  auto bank=PPUBANK[0];MapperSram(0x7ffc,0);assert(PPUBANK[0]==bank);
+  assert(nes::infones_adapter::load(rom.data(),rom.size(),&error));
+  assert(ROMBANK0==ROM && PPUBANK[0]==VROM);
+  nes::infones_adapter::unload();assert(allocations==0);
+  rom[8]=0x11;assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error));
+  for(unsigned mapper:{24,25,268}){
+    rom=banked_cartridge(mapper,0,true);rom[11]=7;
+    assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error));
+  }
+  for(unsigned mapper:{24,25}){
+    rom=banked_cartridge(mapper,1,true);rom[4]=32;rom.resize(16+512*1024+8192);
+    assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error));
+  }
 }
 static void sunsoft69() {
   auto rom=banked_cartridge(69,16,true);const char *error=nullptr;
@@ -351,5 +421,5 @@ static void sunsoft69() {
   assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error) && error);
 }
 int main(){nrom();mapper48();clipping();cpu_operands();audio_backpressure();
-  cartridge_loading();lifecycle_and_oom();admitted_bank_bounds();mmc3_appended_chr();sunsoft69();
+  cartridge_loading();lifecycle_and_oom();admitted_bank_bounds();mmc3_appended_chr();sunsoft69();newly_admitted_boards();
   puts("core cartridge regression passed");}

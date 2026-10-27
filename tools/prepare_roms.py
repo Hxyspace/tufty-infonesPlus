@@ -64,14 +64,17 @@ def review(data, rules, mappers, trim_padding=False):
     if data[7] & 0x0C not in (0, 8):
         return Review(original, result.notes + ["ERROR: unknown NES header format; unchanged"], True)
     nes2 = data[7] & 0x0C == 0x08
+    mapper = (data[6] >> 4) | (data[7] & 0xF0)
+    if nes2:
+        mapper |= (data[8] & 15) << 8
     if nes2:
         # Format preflight; firmware additionally validates board RAM/geometry.
         ram = lambda value: sum(64 << n if n else 0 for n in (value & 15, value >> 4))
         reason = None
-        if data[8] & 0xF0:
+        if data[8] & 0xF0 and not (mapper == 25 and data[8] >> 4 == 2):
             reason = "submapper is unsupported"
-        elif data[8] & 15:
-            reason = "extended mapper is unsupported"
+        elif mapper > 255 and mapper not in mappers:
+            reason = f"extended mapper {mapper} is unsupported"
         elif data[9]:
             reason = "extended ROM sizes are unsupported"
         elif ram(data[10]) > 8192 or ram(data[11]) > 8192 or (data[5] and data[11]):
@@ -91,7 +94,6 @@ def review(data, rules, mappers, trim_padding=False):
         return Review(original, result.notes + [f"ERROR: truncated ROM: need {end}, have {len(data)} bytes; unchanged"], True)
     payload = data[start:end]
     crc = f"{zlib.crc32(payload):08x}"
-    mapper = (data[6] >> 4) | (data[7] & 0xF0)
     mirror = "four-screen" if data[6] & 8 else "vertical" if data[6] & 1 else "horizontal"
     result.notes.append(f"{'NES 2.0' if nes2 else 'iNES 1.0'} CRC32={crc} mapper={mapper} mirroring={mirror} PRG={prg} CHR={chr_size}")
     if nes2 and data[12] == 2:
@@ -110,6 +112,8 @@ def review(data, rules, mappers, trim_padding=False):
             if target != mapper:
                 fixed[6] = (fixed[6] & 0x0F) | ((target & 15) << 4)
                 fixed[7] = (fixed[7] & 0x0F) | (target & 0xF0)
+                if nes2:
+                    fixed[8] = (fixed[8] & 0xF0) | (target >> 8)
                 result.notes.append(f"FIX: mapper {mapper} -> {target}")
                 mapper = target
             if "mirroring" in rule and mirror != rule["mirroring"]:

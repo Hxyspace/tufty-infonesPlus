@@ -16,7 +16,9 @@ bool validate_board(const Cartridge &i,const char **error) {
   if(!found)return reject("Unimplemented mapper; no legacy-number fallback");
   if(std::find(admitted_mappers.begin(),admitted_mappers.end(),i.mapper)==admitted_mappers.end())
     return reject("Mapper board geometry is not yet admitted by this loader");
-  if(i.submapper)return reject("Submapper needs board-specific validation");
+  // VRC4d has an explicit address decode; other nonzero variants remain gated.
+  if(i.submapper && !(i.mapper==25 && i.submapper==2))
+    return reject("Submapper needs board-specific validation");
   const auto power_of_two=[](std::size_t n){return n && !(n&(n-1));};
   // MMC3 CHR registers wrap by the actual number of 1 KiB banks. Translated
   // images can append CHR banks without rounding the file up to a power of two.
@@ -36,7 +38,10 @@ bool validate_board(const Cartridge &i,const char **error) {
     case 3:
       if(i.prg_size>32768 || i.chr_size>32768)return reject("Invalid CNROM geometry");
       chr_required=true;break;
-    case 48:case 66:case 69:chr_required=true;break;
+    case 24:case 25:
+      if(i.prg_size>256*1024)return reject("VRC PRG exceeds 256 KiB bank addressing");
+      chr_required=true;break;
+    case 48:case 66:case 69:case 268:chr_required=true;break;
     default:return reject("Mapper board geometry is not yet admitted by this loader");
   }
   if((i.mapper!=0 && i.mapper!=1 && i.mapper!=3 && i.prg_size<32768) ||

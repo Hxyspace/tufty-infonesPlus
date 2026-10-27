@@ -35,8 +35,8 @@ def main():
         run(path, "--frames", "3junk", ok=False)
         run(path, "--output", work / "missing/frame.ppm", "--frames", 1, ok=False)
         run(work / "missing.nes", ok=False)
-        rom[6] = 0x80
-        rom[7] = 0x10  # Mapper 24 is retained but not admitted.
+        rom[6] = 0xa0
+        rom[7] = 0x10  # Mapper 26 is retained but not admitted.
         path.write_bytes(rom)
         assert "not yet admitted" in run(path, "--frames", 1, ok=False).stdout
     print("ROM probe load/run/output checks passed")
