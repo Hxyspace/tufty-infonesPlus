@@ -2438,6 +2438,7 @@ bool InfoNES_pAPUInit(void)
   /*   Initialize Triangle Wave's Regs                                 */
   /*-------------------------------------------------------------------*/
   ApuC3a = ApuC3b = ApuC3c = ApuC3d = 0;
+  ApuC3Skip = ApuC3Index = 0;
   ApuC3Atl = ApuC3Llc = 0;
   ApuC3ReloadFlag = false;
   // ApuC3WriteLatency = 3; /* Magic Number */
@@ -2535,7 +2536,10 @@ bool InfoNES_pAPUInit(void)
   ApuVrc7Enable = 0;
 #endif
 
-  entertime = getPassedClocks();
+  // InfoNES_Reset initializes APU before mapper banks and the CPU reset.
+  // K6502_Reset then starts the CPU at cycle zero, so the first register
+  // events must use that new epoch rather than the previous game's clock.
+  entertime = 0;
   cur_event = 0;
   return true;
 }

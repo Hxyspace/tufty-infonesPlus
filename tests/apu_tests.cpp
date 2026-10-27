@@ -235,12 +235,12 @@ void prepare(int region,bool output){
   #ifndef APU_LEGACY_REFERENCE
   assert((wave_buffers!=nullptr)==output);
 #endif
-  // These phase fields predate this change and are not reset by upstream init.
-  // Seed them explicitly for independent runs rather than hiding that fact.
+#ifdef APU_LEGACY_REFERENCE
+  // The historical reference needs these corrections to match a fresh machine.
+  // Production runs must exercise the real reset without fixture repairs.
   ApuC3Index=ApuC3Skip=0;ApuVrc6FreqCtrl=0;
-  // pAPUInit runs before K6502_Reset; normalize the event clock origin so
-  // independent cartridges start with identical preexisting core state.
   entertime=getPassedClocks();
+#endif
   std::memset(SRAM,0,SRAM_SIZE);
   std::memset(ApuEventQueue,0,sizeof ApuEventQueue);
   frame_count=sample_count=output_calls=0;output_hash=1469598103934665603ull;
@@ -260,6 +260,67 @@ void expansions(){
 }
 void cleanup(){InfoNES_Fin();assert(live==0 && live_bytes==0);}
 #ifndef APU_LEGACY_REFERENCE
+void reload_initial_state(){
+  // Capture each region's cold state before running any CPU/APU work.
+  std::vector<State> cold;
+  for(int region:{INFONES_REGION_NTSC,INFONES_REGION_PAL,INFONES_REGION_DENDY}){
+    prepare(region,false);cold.emplace_back();cleanup();
+  }
+  bool passed=true;
+  unsigned transitions=0,clock_failures=0,phase_failures=0,write_failures=0;
+  for(bool output:{true,false})for(int previous=0;previous<3;++previous)
+  for(int next=0;next<3;++next)for(bool in_place:{false,true}){
+    if(in_place && previous!=next)continue;
+    prepare(previous,output);expansions();
+    // Actual CPU writes turn on the triangle, then leave a nonzero CPU clock.
+    const BYTE code[]={0xa9,0x04,0x8d,0x15,0x40,0xa9,0xff,0x8d,0x08,0x40,
+      0xa9,0x20,0x8d,0x0a,0x40,0xa9,0x18,0x8d,0x0b,0x40,0x4c,0x14,0x80};
+    std::copy(std::begin(code),std::end(code),prg.begin());
+    ApuWriteVrc6Freq(0x9003,6);ApuWriteVrc6P1a(0x9000,0x8f);
+    ApuWriteVrc6P1b(0x9001,0x20);ApuWriteVrc6P1c(0x9002,0x80);
+    ApuWriteMmc5Ctrl(0x5015,3);ApuWriteMmc5P1a(0x5000,0x3f);
+    ApuWriteMmc5P1c(0x5002,0x20);ApuWriteMmc5P1d(0x5003,0x18);
+    ApuWriteSunsoft5B(0,0x20);ApuWriteSunsoft5B(7,0);ApuWriteSunsoft5B(8,0x10);
+    ApuWriteSunsoft5B(13,0x0a);
+    K6502_Step(40002);
+    InfoNES_pAPUHsync(true);InfoNES_pAPUVsync();InfoNES_pAPUHsync(true);
+    assert(ApuC3Index!=0 && ApuC3Skip!=0 && getPassedClocks()>32768);
+    // Leave one unconsumed event too; reset must discard the old queue.
+    ApuWriteC2a(0x4004,0x3f);
+    if(in_place){assert(InfoNES_Reset()==0);}
+    else {cleanup();prepare(next,output);}
+    ++transitions;
+    const bool clock_ok=entertime==getPassedClocks();
+    const bool phase_ok=ApuC3Index==0 && ApuC3Skip==0;
+    if(!clock_ok)++clock_failures;
+    if(!phase_ok)++phase_failures;
+    const State reset;
+    if(reset.bytes!=cold[next].bytes){
+      std::size_t at=0;
+      visit_state([&](const auto &x,const char *name){
+        if(at+sizeof x>cold[next].bytes.size() ||
+           std::memcmp(&x,cold[next].bytes.data()+at,sizeof x))
+          std::fprintf(stderr,"APU reload %d->%d output=%d in_place=%d: %s differs\n",
+                       previous,next,output,in_place,name);
+        at+=sizeof x;
+      });
+      passed=false;
+    }
+    // A stale clock above 32768 wraps these first writes into the future;
+    // the first HSync then discards them without applying the registers.
+    const BYTE first_writes[]={0xa9,0xbf,0x8d,0x00,0x40,
+      0xa9,0x7f,0x8d,0x08,0x40,0x4c,0x0a,0x80};
+    std::copy(std::begin(first_writes),std::end(first_writes),prg.begin());
+    K6502_Step(40);InfoNES_pAPUHsync(true);
+    if(ApuC1a!=0xbf || ApuC3a!=0x7f){++write_failures;passed=false;}
+    passed=passed && clock_ok && phase_ok;
+    cleanup();
+  }
+  std::printf("APU reload: %u transitions, clock failures=%u, triangle failures=%u, first-write failures=%u\n",
+              transitions,clock_failures,phase_failures,write_failures);
+  std::fflush(stdout);
+  assert(passed);
+}
 void differential(){
   std::mt19937 random(0x4e4553);
   constexpr BYTE types[]={0,1,2,3,4,5,6,7,8,9,10,11,12,14,15,16,17,18,19,APUET_W_CTRL,
@@ -366,6 +427,7 @@ int main(){
   // Legacy always materializes output; compare reference digests externally.
   for(int region:{INFONES_REGION_NTSC,INFONES_REGION_PAL,INFONES_REGION_DENDY})machine(true,region);
 #else
+  reload_initial_state();
   for(int region:{INFONES_REGION_NTSC,INFONES_REGION_PAL,INFONES_REGION_DENDY}){
     const auto reference=machine(true,region);assert(machine(false,region)==reference);
   }
