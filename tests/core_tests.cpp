@@ -281,8 +281,18 @@ static void cartridge_loading() {
 }
 static void admitted_bank_bounds() {
   for(auto mapper:nes::admitted_mappers)for(bool large:{false,true}){
-    unsigned prg_banks=large && mapper!=0 && mapper!=3?(mapper==24 || mapper==25?16:32):2;
-    unsigned chr_banks=mapper==2 || mapper==7?0:large && mapper!=0?mapper==3?4:32:1;
+    unsigned prg_banks=large && mapper!=0 && mapper!=3?32:2;
+    if(large){
+      if(mapper==11 || mapper==70)prg_banks=8;
+      if(mapper==8 || mapper==206)prg_banks=8;
+      if(mapper==18 || mapper==23 || mapper==24 || mapper==25 || mapper==71)prg_banks=16;
+      if(mapper==15 || mapper==177 || mapper==241)prg_banks=64;
+    }
+    unsigned chr_banks=large && mapper!=0?mapper==3?4:32:1;
+    if(mapper==2 || mapper==7 || mapper==15 || mapper==71 || mapper==177 || mapper==241)chr_banks=0;
+    if(large && (mapper==11 || mapper==70))chr_banks=16;
+    if(large && mapper==8)chr_banks=4;
+    if(large && mapper==206)chr_banks=8;
     std::vector<BYTE> rom(16+prg_banks*16384+chr_banks*8192);
     std::memcpy(rom.data(),"NES\x1a",4);rom[4]=prg_banks;rom[5]=chr_banks;
     rom[6]=(mapper&15)<<4;rom[7]=mapper&0xf0;
@@ -314,6 +324,412 @@ static std::vector<BYTE> banked_cartridge(unsigned mapper,unsigned chr_banks,boo
   for(unsigned n=0;n<prg_bytes/8192;++n)std::fill_n(rom.data()+16+n*8192,8192,n);
   for(unsigned n=0;n<chr_banks*8;++n)std::fill_n(rom.data()+16+prg_bytes+n*1024,1024,n);
   return rom;
+}
+static void simple_mapper_boards() {
+  const auto load=[](std::vector<BYTE> &rom){
+    const char *error=nullptr;
+    assert(nes::infones_adapter::load(rom.data(),rom.size(),&error) && !error);
+  };
+  const auto finish=[]{nes::infones_adapter::unload();assert(allocations==0);};
+  const auto prg_bank=[](unsigned slot,unsigned bank){assert(ROMBANK[slot]==ROM+bank*8192);};
+  const auto chr_bank=[](unsigned slot,unsigned bank){assert(PPUBANK[slot]==VROM+bank*1024);};
+  const auto mirror=[](bool horizontal){
+    assert(PPUBANK[8]==PPUBANK[horizontal?9:10]);
+    assert(PPUBANK[8]!=PPUBANK[horizontal?10:9]);
+  };
+  // Bus conflicts must sample the old CPU window, not the newly selected bank.
+  for(unsigned mapper:{2,3})for(unsigned sub:{0,2}){
+    auto rom=banked_cartridge(mapper,mapper==3?4:0,true);
+    rom[8]=sub<<4;if(mapper==2)rom[11]=7;
+    // CNROM has fixed 32 KiB PRG.
+    if(mapper==3){rom.erase(rom.begin()+16+32768,rom.begin()+16+128*1024);rom[4]=2;}
+    const auto original=rom;load(rom);
+    for(unsigned value=0;value<256;++value)for(WORD address:{0x8123,0xa456,0xc789,0xfabc}){
+      const unsigned latched=value & (sub==2?ROMBANK[(address-0x8000)/8192][address&8191]:255);
+      MapperWrite(address,value);
+      if(mapper==2){prg_bank(0,(latched%8)*2);prg_bank(1,(latched%8)*2+1);prg_bank(2,14);prg_bank(3,15);}
+      else for(unsigned slot=0;slot<8;++slot)chr_bank(slot,(latched%4)*8+slot);
+    }
+    assert(rom==original);finish();
+  }
+  for(unsigned chr_banks:{0,16}){
+    auto rom=banked_cartridge(11,chr_banks);rom[6]|=1;
+    const auto original=rom;load(rom);mirror(false);
+    for(unsigned value=0;value<256;++value)for(WORD address:{0x8123,0xa456,0xc789,0xfabc}){
+      // Legacy mapper 11 covers boards with and without bus conflicts.
+      // Retain permissive writes (e.g. Free Fall), unlike explicit 2.2/3.2.
+      const unsigned latched=value;
+      MapperWrite(address,value);
+      for(unsigned slot=0;slot<4;++slot)prg_bank(slot,(latched&3)*4+slot);
+      if(chr_banks)for(unsigned slot=0;slot<8;++slot)chr_bank(slot,(latched>>4)*8+slot);
+      else assert(PPUBANK[0]==PPURAM);
+      mirror(false);
+    }
+    assert(rom==original);finish();
+  }
+  auto rom=banked_cartridge(33,32);load(rom);
+  for(unsigned value=0;value<256;++value){
+    // $c000/$c001 are mirrors of $8000/$8001, not IRQ registers.
+    MapperWrite(0xdffc,value);prg_bank(0,(value&63)%16);mirror(value&64);
+    MapperWrite(0x9ffd,value);prg_bank(1,(value&63)%16);
+    for(unsigned pair=0;pair<2;++pair){
+      MapperWrite(0xc002+pair,value);
+      chr_bank(pair*2,(value*2)%256);chr_bank(pair*2+1,(value*2+1)%256);
+    }
+    for(unsigned slot=0;slot<4;++slot){MapperWrite(0xfffc+slot,value);chr_bank(4+slot,value);}
+  }
+  for(unsigned n=0;n<300;++n)MapperHSync();assert(IRQ_State==IRQ_Wiring);finish();
+  rom=banked_cartridge(70,16);load(rom);mirror(false);
+  for(unsigned value=0;value<256;++value){
+    MapperWrite(0xbfff,value);
+    prg_bank(0,((value>>4)&7)*2);prg_bank(1,((value>>4)&7)*2+1);
+    prg_bank(2,14);prg_bank(3,15);
+    for(unsigned slot=0;slot<8;++slot)chr_bank(slot,(value&15)*8+slot);
+  }
+  assert(PPUBANK[8]==PPUBANK[11] && PPUBANK[8]==PPURAM+0x2400);
+  MapperWrite(0x8000,0);assert(PPUBANK[8]==PPURAM+0x2000);
+  assert(InfoNES_Reset()==0);mirror(false);finish();
+  rom=banked_cartridge(71,0);load(rom);
+  MapperWrite(0xc123,3);prg_bank(0,6);
+  MapperWrite(0x8123,0);prg_bank(0,6);
+  MapperWrite(0x9000,0x10);assert(PPUBANK[8]==PPURAM+0x2400);prg_bank(0,6);
+  MapperWrite(0x9fff,0);assert(PPUBANK[8]==PPURAM+0x2000);prg_bank(0,6);
+  for(unsigned value=0;value<256;++value){MapperWrite(0xffff,value);prg_bank(0,(value%8)*2);prg_bank(2,14);}
+  assert(InfoNES_Reset()==0);prg_bank(0,0);assert(PPUBANK[8]!=PPUBANK[11]);finish();
+  // Mapper 241 can address 1 MiB. Every address in the register window latches.
+  rom=banked_cartridge(241,0);rom.resize(16+1024*1024);rom[4]=64;load(rom);
+  for(unsigned value=0;value<256;++value)for(WORD address:{0x8000,0x9123,0xbfff,0xffff}){
+    MapperWrite(address,value);
+    for(unsigned slot=0;slot<4;++slot)prg_bank(slot,(value%32)*4+slot);
+  }
+  finish();
+  // Admission failures must preserve the running cartridge.
+  rom=banked_cartridge(0,1);rom[4]=2;rom.erase(rom.begin()+16+32768,rom.begin()+16+128*1024);load(rom);
+  const auto previous=ROM;
+  for(unsigned mapper:{2,3,11,33,70,71,241}){
+    auto bad=banked_cartridge(mapper,1,true);bad[8]=0xf0;
+    assert(!nes::infones_adapter::load(bad.data(),bad.size()) && ROM==previous);
+    bad[8]=0;bad[10]=8;
+    assert(!nes::infones_adapter::load(bad.data(),bad.size()) && ROM==previous);
+  }
+  for(unsigned mapper:{11,70,71}){
+    auto bad=banked_cartridge(mapper,mapper==71?0:16);
+    bad.resize(16+512*1024+bad[5]*8192);bad[4]=32;
+    assert(!nes::infones_adapter::load(bad.data(),bad.size()) && ROM==previous);
+  }
+  finish();
+}
+static void hengge177() {
+  for(unsigned bytes:{32768,128*1024,512*1024,1024*1024})
+    for(bool nes2:{false,true})for(bool battery:{false,true}) {
+      std::vector<BYTE> rom(16+bytes);
+      std::memcpy(rom.data(),"NES\x1a",4);rom[4]=bytes/16384;
+      rom[6]=0x10|(battery?2:0);rom[7]=0xb0|(nes2?8:0);
+      if(nes2){rom[10]=battery?0x70:7;rom[11]=7;rom[12]=3;}
+      for(unsigned n=0;n<bytes/8192;++n)std::fill_n(rom.data()+16+n*8192,8192,n);
+      const auto original=rom;
+      assert(nes::infones_adapter::load(rom.data(),rom.size()));
+      for(unsigned pass=0;pass<2;++pass) {
+        for(unsigned i=0;i<4;++i)assert(ROMBANK[i]==ROM+i*8192);
+        assert(PPUBANK[8]==PPUBANK[10] && PPUBANK[9]==PPUBANK[11]);
+        assert(!MapperReadSram && !MapperSramOwnsWrite);
+        PPURAM[17]=0x5a;
+        for(unsigned data=0;data<256;++data)for(WORD address:{0x8000,0x9123,0xbfff,0xffff}) {
+          MapperWrite(address,data);
+          const unsigned page=((data&31)%(bytes/32768))*4;
+          for(unsigned i=0;i<4;++i)assert(ROMBANK[i]==ROM+(page+i)*8192);
+          assert(PPUBANK[8]==PPUBANK[data&32?9:10]);
+          assert(PPUBANK[8]!=PPUBANK[data&32?10:9]);
+          assert(PPUBANK[0]==PPURAM && PPURAM[17]==0x5a && byVramWriteEnable);
+        }
+        // Low-address SRAM writes are plain RAM, not bank registers. Use the
+        // real CPU bus to check both ends of WRAM and the absence of conflicts.
+        const auto prg0=ROMBANK0;
+        const BYTE code[]={0xa9,0xa5,0x8d,7,0x60,0x8d,0xff,0x7f,
+                           0xad,7,0x60,0x85,4,0xad,0xff,0x7f,0x85,5,0x4c,18,2};
+        std::copy(std::begin(code),std::end(code),RAM+0x200);
+        SRAMwritten=false;PC=0x200;K6502_Step(60);
+        assert(SRAMwritten && SRAM[7]==0xa5 && SRAM[8191]==0xa5);
+        assert(RAM[4]==0xa5 && RAM[5]==0xa5 && ROMBANK0==prg0);
+        for(unsigned n=0;n<400;++n)MapperHSync();
+        assert(IRQ_State==IRQ_Wiring && rom==original);
+        assert(InfoNES_Reset()==0);
+      }
+      // Invalid boards must not disturb the loaded cartridge or its mapping.
+      const auto active=ROMBANK0;
+      for(unsigned kind=0;kind<8;++kind) {
+        auto bad=rom;bad[7]|=8;bad[10]=battery?0x70:7;bad[11]=7;
+        if(kind==0){bad[5]=1;bad[11]=0;bad.resize(bad.size()+8192);}
+        if(kind==1)bad[6]|=8;
+        if(kind==2){bad[4]=128;bad.resize(16+2*1024*1024);}
+        if(kind==3)bad[8]=0x10;
+        if(kind==4)bad[10]=5;
+        if(kind==5)bad[10]=8;
+        if(kind==6)bad[10]=0;
+        if(kind==7)bad[11]=8;
+        assert(!nes::infones_adapter::load(bad.data(),bad.size()));
+        assert(ROMBANK0==active && MapperNo==177);
+      }
+      nes::infones_adapter::unload();assert(allocations==0);
+    }
+}
+static void medium_mapper_boards() {
+  const auto load=[](std::vector<BYTE> &rom){assert(nes::infones_adapter::load(rom.data(),rom.size()));};
+  const auto finish=[]{nes::infones_adapter::unload();assert(allocations==0);};
+  const auto prg_bank=[](unsigned slot,unsigned bank){assert(ROMBANK[slot]==ROM+bank*8192);};
+  const auto chr_bank=[](unsigned slot,unsigned bank){assert(PPUBANK[slot]==VROM+bank*1024);};
+  // K-1029's four PRG modes, including aliases and the upper half of 1 MiB.
+  auto rom=banked_cartridge(15,0);rom.resize(16+1024*1024);rom[4]=64;load(rom);
+  for(unsigned value=0;value<256;++value)for(unsigned mode=0;mode<4;++mode){
+    MapperWrite(0xbffc+mode,value);
+    unsigned bank=value&63;
+    std::array<unsigned,4> expected{};
+    switch(mode){
+      case 0:bank&=62;expected={bank*2,bank*2+1,bank*2+2,bank*2+3};break;
+      case 1:expected={bank*2,bank*2+1,((bank&56)|7)*2,((bank&56)|7)*2+1};break;
+      case 2:bank=bank*2+(value>>7);expected={bank,bank,bank,bank};break;
+      case 3:expected={bank*2,bank*2+1,bank*2,bank*2+1};break;
+    }
+    for(unsigned slot=0;slot<4;++slot)prg_bank(slot,expected[slot]);
+    assert(PPUBANK[8]==PPUBANK[value&64?9:10]);
+    assert(PPUBANK[0]==PPURAM && byVramWriteEnable);
+  }
+  finish();
+  rom=banked_cartridge(18,32);load(rom);
+  // Registers are nibble-wide and mirrored over the rest of the CPU block.
+  for(unsigned value=0;value<256;++value){
+    for(unsigned slot=0;slot<3;++slot){
+      const WORD a=slot<2?0x8ffc+slot*2:0x9ffc;
+      MapperWrite(a,value&15);MapperWrite(a+1,value>>4);prg_bank(slot,value%16);
+    }
+    for(unsigned slot=0;slot<8;++slot){
+      const WORD a=0xaffc+(slot/2)*0x1000+(slot%2)*2;
+      MapperWrite(a,value&15);MapperWrite(a+1,value>>4);chr_bank(slot,value);
+    }
+  }
+  for(unsigned mirror=0;mirror<4;++mirror){
+    MapperWrite(0xfffe,mirror);
+    if(mirror<2)assert(PPUBANK[8]==PPUBANK[mirror==0?9:10]);
+    else for(unsigned slot=8;slot<12;++slot)assert(PPUBANK[slot]==PPURAM+0x2000+(mirror-2)*1024);
+  }
+  // Compare the scanline aggregate against a per-clock counter oracle for
+  // every width, priority when multiple width bits are set, and all regions.
+  extern WORD Map18_IRQ_Cnt;
+  for(auto region:{INFONES_REGION_NTSC,INFONES_REGION_PAL,INFONES_REGION_DENDY}){
+    InfoNES_SetRegion(region);
+    for(unsigned control:{1,3,5,9,15})for(unsigned initial:{0,1,0xabc1,0xffff}){
+      assert(InfoNES_Reset()==0);
+      for(unsigned nibble=0;nibble<4;++nibble)MapperWrite(0xeffc+nibble,(initial>>(nibble*4))&15);
+      MapperWrite(0xfffc,0);assert(Map18_IRQ_Cnt==initial);
+      MapperWrite(0xfffd,control);
+      const unsigned mask=control&8?15:control&4?255:control&2?4095:65535;
+      unsigned reference=initial;
+      for(unsigned line=0;line<20;++line){
+        bool fired=false;
+        for(unsigned clock=0;clock<STEP_PER_SCANLINE;++clock){
+          if(!(reference&mask))fired=true;
+          const unsigned low=(reference-1)&mask;
+          reference=(reference&~mask)|low;
+        }
+        IRQ_State=IRQ_Wiring;MapperHSync();
+        assert(Map18_IRQ_Cnt==reference && (IRQ_State!=IRQ_Wiring)==fired);
+      }
+    }
+  }
+  IRQ_State=0;APU_Reg[0x15]|=0x40;MapperWrite(0xf001,0);assert(IRQ_State==0);
+  APU_Reg[0x15]&=~0x40;MapperWrite(0xf001,0);assert(IRQ_State==IRQ_Wiring);
+  assert(InfoNES_Reset()==0);for(unsigned line=0;line<400;++line)MapperHSync();assert(IRQ_State==IRQ_Wiring);
+  finish();InfoNES_SetRegion(INFONES_REGION_NTSC);
+  for(unsigned sub:{0,2,3}){
+    rom=banked_cartridge(23,32,true);rom[8]=sub<<4;load(rom);
+    const unsigned shift=sub==2?2:0;
+    for(unsigned value=0;value<256;++value){
+      MapperWrite(0x8fff,value);
+      for(unsigned mode:{0,2,0}){
+        MapperWrite(0x9000+(2<<shift),mode);
+        prg_bank(0,mode && sub!=3?14:(value&31)%16);
+        prg_bank(2,mode && sub!=3?(value&31)%16:14);
+      }
+      MapperWrite(0xafff,value);prg_bank(1,(value&31)%16);
+      for(unsigned slot=0;slot<8;++slot){
+        WORD a=0xb000+(slot/2)*0x1000+((slot%2)*2<<shift);
+        // The unused address lines must not select a different nibble.
+        a|=sub==2?3:sub==3?12:0;
+        MapperWrite(a,value&15);MapperWrite(a+(1<<shift),value>>4);chr_bank(slot,value);
+      }
+    }
+    if(sub==3){
+      MapperWrite(0xf000,15);MapperWrite(0xf001,15);MapperWrite(0xf002,7);
+      for(unsigned line=0;line<400;++line)MapperHSync();assert(IRQ_State==IRQ_Wiring);
+    } else {
+      MapperWrite(0xf000,14);MapperWrite(0xf000+(1<<shift),15);
+      MapperWrite(0xf000+(2<<shift),2);MapperHSync();assert(IRQ_State==IRQ_Wiring);
+      MapperHSync();assert(IRQ_State!=IRQ_Wiring);
+      MapperWrite(0xf000+(3<<shift),0);assert(IRQ_State==IRQ_Wiring);
+      for(unsigned line=0;line<300;++line)MapperHSync();assert(IRQ_State==IRQ_Wiring);
+      // Cycle mode advances by the line's CPU budget; ack preserves APU IRQ.
+      MapperWrite(0xf000+(2<<shift),6);MapperHSync();assert(IRQ_State!=IRQ_Wiring);
+      APU_Reg[0x15]|=0x40;MapperWrite(0xf000+(3<<shift),0);assert(IRQ_State!=IRQ_Wiring);
+      APU_Reg[0x15]&=~0x40;MapperWrite(0xf000+(3<<shift),0);assert(IRQ_State==IRQ_Wiring);
+    }
+    assert(InfoNES_Reset()==0);for(unsigned line=0;line<400;++line)MapperHSync();assert(IRQ_State==IRQ_Wiring);
+    finish();
+  }
+  // Exercise the CPU path, not just the mapper callbacks: 2 KiB VRC4 RAM
+  // mirrors, and VRC2's one-bit latch must not write the generic SRAM first.
+  for(unsigned sub:{2,3}){
+    rom=banked_cartridge(23,16,true);rom[8]=sub<<4;rom[10]=sub==2?5:0;
+    const BYTE program[]={0xa9,0xa5,0x8d,0x07,0x60,0xad,0x07,0x68,0x85,0x04,
+                          0xad,0x07,0x70,0x85,0x05,0x4c,0x0f,0x80};
+    std::copy(std::begin(program),std::end(program),rom.begin()+16);load(rom);PC=0x8000;SRAMwritten=false;
+    if(sub==2)MapperWrite(0x9008,1);
+    K6502_Step(100);
+    if(sub==2)assert(RAM[4]==0xa5 && RAM[5]==0x70 && SRAMwritten);
+    else assert(RAM[4]==0x69 && RAM[5]==0x70 && !SRAMwritten && SRAM[7]==0);
+    finish();
+  }
+  for(unsigned mapper:{15,18,23}){
+    rom=banked_cartridge(mapper,1,true);rom[8]=0x10;
+    assert(!nes::infones_adapter::load(rom.data(),rom.size()));
+    rom[8]=0;rom[10]=8;assert(!nes::infones_adapter::load(rom.data(),rom.size()));
+  }
+}
+static void mapper_ram_permissions() {
+  const auto write=[](WORD address,BYTE value){
+    const BYTE code[]={0xa9,value,0x8d,BYTE(address),BYTE(address>>8),0x4c,5,2};
+    std::copy(std::begin(code),std::end(code),RAM+0x200);
+    PC=0x200;SRAMwritten=false;K6502_Step(40);
+  };
+  const auto read=[](WORD address){
+    const BYTE code[]={0xad,BYTE(address),BYTE(address>>8),0x85,4,0x4c,5,2};
+    std::copy(std::begin(code),std::end(code),RAM+0x200);
+    PC=0x200;K6502_Step(40);return RAM[4];
+  };
+  for(unsigned mapper:{18,23})for(unsigned sub:{0,2,3})for(unsigned ram:{0,5,7}){
+    if(mapper==18 && sub)continue;
+    auto rom=banked_cartridge(mapper,1,true);rom[8]=sub<<4;rom[10]=ram;
+    assert(nes::infones_adapter::load(rom.data(),rom.size()));
+    const auto original=rom;
+    const WORD control=mapper==18?0x9ffe:sub==2?0x9008:0x9002;
+    const bool gated=mapper==18 || sub==2;
+    for(unsigned pass=0;pass<2;++pass){
+      // Reset revokes permission without clearing cartridge RAM.
+      assert(InfoNES_Reset()==0);SRAM[7]=0x33;
+      write(0x6007,0xa5);
+      assert(SRAMwritten==bool(ram && !gated));
+      assert(SRAM[7]==(ram && !gated?0xa5:0x33));
+      if(gated)assert(read(0x6007)==0x60);
+      if(!ram && sub==3)assert(read(0x6007)==0x61);
+      for(unsigned permission:{3,1,0,2,3}){
+        MapperWrite(control,permission);SRAM[7]=0x55;
+        const bool readable=ram && (!gated || (permission&1));
+        const bool writable=readable && (mapper!=18 || (permission&2));
+        write(0x6007,0xa5);
+        assert(SRAMwritten==writable && SRAM[7]==(writable?0xa5:0x55));
+        assert(read(0x6007)==(readable?SRAM[7]:!ram && sub==3?0x61:0x60));
+        if(ram==5){
+          assert(read(0x6807)==(readable?SRAM[7]:0x68));
+          const bool upper=readable && !(mapper==23 && sub==2);
+          assert(read(0x7007)==(upper?SRAM[7]:0x70));
+          write(0x7007,0x3c);
+          assert(SRAMwritten==bool(writable && upper));
+          if(writable && !upper)assert(SRAM[7]==0xa5);
+        }
+        if(ram==7){
+          write(0x7007,0x3c);
+          assert(SRAMwritten==writable);
+          if(writable)assert(SRAM[0x1007]==0x3c && SRAM[7]==0xa5);
+        }
+      }
+    }
+    assert(rom==original);nes::infones_adapter::unload();assert(allocations==0);
+  }
+}
+static void sram_dispatch_lifecycle() {
+  // Alternate special and ordinary boards without an explicit unload. The
+  // SRAM bus must belong solely to the active cartridge, including Reset.
+  static unsigned notifications=0;
+  for(unsigned mapper:{18,0,23,268,69,4,18,69,0}) {
+    auto rom=banked_cartridge(mapper,1,true);
+    if(mapper==0) {
+      rom.erase(rom.begin()+16+32768,rom.begin()+16+128*1024);
+      rom[4]=2;
+    }
+    assert(nes::infones_adapter::load(rom.data(),rom.size()));
+    const auto original=rom;
+    auto expected=mapper==18?Map18_ReadSram:mapper==23?Map23_ReadSram:
+                  mapper==69?Map69_ReadSram:nullptr;
+    for(unsigned pass=0;pass<2;++pass) {
+      assert(MapperReadSram==expected && MapperSramOwnsWrite==bool(expected));
+      // An admission failure must preserve both the cartridge and its bus.
+      auto bad=banked_cartridge(5,1,true);
+      assert(!nes::infones_adapter::load(bad.data(),bad.size()));
+      assert(MapperReadSram==expected && MapperSramOwnsWrite==bool(expected));
+      if(!expected) {
+        MapperSram=+[](WORD address,BYTE data) {
+          assert(SRAMBANK[address&0x1fff]==data && SRAMwritten);
+          ++notifications;
+        };
+        const BYTE code[]={0xa9,0xa5,0x8d,7,0x60,0xad,7,0x60,0x85,4,0x4c,10,2};
+        std::copy(std::begin(code),std::end(code),RAM+0x200);
+        const auto before=notifications;
+        SRAMwritten=false;PC=0x200;K6502_Step(40);
+        assert(notifications==before+1 && RAM[4]==0xa5 && SRAM[7]==0xa5);
+      }
+      assert(InfoNES_Reset()==0);
+      assert(MapperReadSram==expected && MapperSramOwnsWrite==bool(expected));
+    }
+    assert(rom==original);
+  }
+  nes::infones_adapter::unload();
+  assert(!MapperReadSram && !MapperSramOwnsWrite && allocations==0);
+}
+static void mapper8_and_dxrom() {
+  auto rom=banked_cartridge(8,4);const auto original=rom;
+  assert(nes::infones_adapter::load(rom.data(),rom.size()));
+  for(unsigned data=0;data<256;++data)for(WORD address:{0x8000,0x9fff,0xc123,0xffff}){
+    MapperWrite(address,data);
+    for(unsigned slot=0;slot<4;++slot)assert(ROMBANK[slot]==ROM+(((data>>4)&3)*4+slot)*8192);
+    for(unsigned slot=0;slot<8;++slot)assert(PPUBANK[slot]==VROM+((data&3)*8+slot)*1024);
+  }
+  assert(rom==original);nes::infones_adapter::unload();
+  for(unsigned sub:{0,1})for(unsigned mirroring:{0,1,8}){
+    rom=banked_cartridge(206,8,true);rom[8]=sub<<4;rom[6]|=mirroring;
+    if(sub){rom.erase(rom.begin()+16+32768,rom.begin()+16+128*1024);rom[4]=2;}
+    assert(nes::infones_adapter::load(rom.data(),rom.size()));
+    const std::array<BYTE *,4> names={PPUBANK[8],PPUBANK[9],PPUBANK[10],PPUBANK[11]};
+    if(mirroring==8)for(unsigned i=0;i<4;++i)for(unsigned j=0;j<i;++j)assert(names[i]!=names[j]);
+    for(unsigned data=0;data<256;++data)for(unsigned reg=0;reg<8;++reg){
+      MapperWrite(0x9ffe,reg|0xf8);MapperWrite(0x9fff,data);
+      if(reg<2){
+        assert(PPUBANK[reg*2]==VROM+(data&62)*1024);
+        assert(PPUBANK[reg*2+1]==VROM+((data&62)+1)*1024);
+      }else if(reg<6)assert(PPUBANK[reg+2]==VROM+(data&63)*1024);
+      else if(!sub)assert(ROMBANK[reg-6]==ROM+(data&15)*8192);
+      if(sub)for(unsigned i=0;i<4;++i)assert(ROMBANK[i]==ROM+i*8192);
+      else {assert(ROMBANK2==ROM+14*8192);assert(ROMBANK3==ROM+15*8192);}
+      const std::array<BYTE *,4> prg={ROMBANK0,ROMBANK1,ROMBANK2,ROMBANK3};
+      const auto chr=PPUBANK[0];
+      for(WORD address:{0xa000,0xc000,0xe000}){MapperWrite(address,6);MapperWrite(address+1,255-data);}
+      for(unsigned i=0;i<4;++i){assert(ROMBANK[i]==prg[i]);assert(PPUBANK[i+8]==names[i]);}
+      assert(PPUBANK[0]==chr);
+    }
+    for(unsigned line=0;line<400;++line)MapperHSync();assert(IRQ_State==IRQ_Wiring);
+    assert(InfoNES_Reset()==0);assert(ROMBANK0==ROM && ROMBANK1==ROM+8192);
+    nes::infones_adapter::unload();
+  }
+  for(unsigned mapper:{8,206}){
+    auto bad=banked_cartridge(mapper,mapper==8?8:16);
+    assert(!nes::infones_adapter::load(bad.data(),bad.size()));
+    bad=banked_cartridge(mapper,1);bad.resize(16+256*1024+8192);bad[4]=16;
+    assert(!nes::infones_adapter::load(bad.data(),bad.size()));
+    bad=banked_cartridge(mapper,0);assert(!nes::infones_adapter::load(bad.data(),bad.size()));
+  }
+  auto bad=banked_cartridge(206,4,true);bad[8]=0x10;
+  assert(!nes::infones_adapter::load(bad.data(),bad.size())); // Fixed PRG must be 32 KiB.
+  bad=banked_cartridge(8,4);bad[6]|=4;bad.insert(bad.begin()+16,512,0);
+  assert(!nes::infones_adapter::load(bad.data(),bad.size())); // FFE trainer is not a passive copy.
+  assert(allocations==0);
 }
 static void mmc3_appended_chr() {
   // Translations can append banks: 21 x 8 KiB = 168 KiB, not a power of two.
@@ -457,6 +873,6 @@ static void sunsoft69() {
   rom=banked_cartridge(69,0,true);rom[11]=7;
   assert(!nes::infones_adapter::load(rom.data(),rom.size(),&error) && error);
 }
-int main(){nrom();dendy_vblank_scroll();mapper48();clipping();cpu_operands();audio_backpressure();
-  cartridge_loading();lifecycle_and_oom();admitted_bank_bounds();mmc3_appended_chr();sunsoft69();newly_admitted_boards();
+int main(){nrom();dendy_vblank_scroll();mapper48();clipping();cpu_operands();audio_backpressure();simple_mapper_boards();hengge177();medium_mapper_boards();mapper_ram_permissions();sram_dispatch_lifecycle();
+  cartridge_loading();lifecycle_and_oom();admitted_bank_bounds();mapper8_and_dxrom();mmc3_appended_chr();sunsoft69();newly_admitted_boards();
   puts("core cartridge regression passed");}

@@ -47,6 +47,8 @@ void Map69_Init()
 
   /* Write to SRAM */
   MapperSram = Map69_Sram;
+  MapperReadSram = Map69_ReadSram;
+  MapperSramOwnsWrite = true;
 
   /* Write to APU */
   MapperApu = Map0_Apu;

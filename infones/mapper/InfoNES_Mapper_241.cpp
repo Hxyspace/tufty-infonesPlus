@@ -61,7 +61,7 @@ void Map241_Init()
 /*-------------------------------------------------------------------*/
 void Map241_Write( WORD wAddr, BYTE byData )
 {
-  if( wAddr == 0x8000 ) {
+  if( wAddr >= 0x8000 ) {
     /* Set ROM Banks */
     ROMBANK0 = ROMPAGE(((byData<<2)+0) % (NesHeader.byRomSize<<1));
     ROMBANK1 = ROMPAGE(((byData<<2)+1) % (NesHeader.byRomSize<<1));

@@ -5,10 +5,10 @@
 /*===================================================================*/
 
 /*  Simplified Namco 108 variant that reuses Mapper 4's bank logic:
- *  - All writes in $8000-$FFFF alias to either $8000 or $8001
+ *  - Only $8000-$9FFF writes select registers
  *  - Bits 6-7 of the MMC3 bank select register do not exist
  *  - No IRQ support or software-controllable mirroring
- *  - Namcot 34xx CHR wiring forces bit 6 high on the 1 KB banks
+ *  - Submapper 1 fixes PRG to 32 KiB instead of banking it
  */
 
 /*-------------------------------------------------------------------*/
@@ -22,10 +22,10 @@ static void Map206_Set_PPU_Banks()
     PPUBANK[ 1 ] = VROMPAGE( ( Map4_Chr01 + 1 ) % ( NesHeader.byVRomSize << 3 ) );
     PPUBANK[ 2 ] = VROMPAGE( ( Map4_Chr23 + 0 ) % ( NesHeader.byVRomSize << 3 ) );
     PPUBANK[ 3 ] = VROMPAGE( ( Map4_Chr23 + 1 ) % ( NesHeader.byVRomSize << 3 ) );
-    PPUBANK[ 4 ] = VROMPAGE( ( Map4_Chr4 | 0x40 ) % ( NesHeader.byVRomSize << 3 ) );
-    PPUBANK[ 5 ] = VROMPAGE( ( Map4_Chr5 | 0x40 ) % ( NesHeader.byVRomSize << 3 ) );
-    PPUBANK[ 6 ] = VROMPAGE( ( Map4_Chr6 | 0x40 ) % ( NesHeader.byVRomSize << 3 ) );
-    PPUBANK[ 7 ] = VROMPAGE( ( Map4_Chr7 | 0x40 ) % ( NesHeader.byVRomSize << 3 ) );
+    PPUBANK[ 4 ] = VROMPAGE( Map4_Chr4 % ( NesHeader.byVRomSize << 3 ) );
+    PPUBANK[ 5 ] = VROMPAGE( Map4_Chr5 % ( NesHeader.byVRomSize << 3 ) );
+    PPUBANK[ 6 ] = VROMPAGE( Map4_Chr6 % ( NesHeader.byVRomSize << 3 ) );
+    PPUBANK[ 7 ] = VROMPAGE( Map4_Chr7 % ( NesHeader.byVRomSize << 3 ) );
     InfoNES_SetupChr();
   }
 }
@@ -108,7 +108,7 @@ void Map206_Write( WORD wAddr, BYTE byData )
 {
   DWORD dwBankNum;
 
-  switch ( wAddr & 0x8001 )
+  switch ( wAddr & 0xe001 )
   {
     case 0x8000:
       Map4_Regs[ 0 ] = byData & 0x07;
@@ -179,11 +179,13 @@ void Map206_Write( WORD wAddr, BYTE byData )
 
         /* Set ROM Banks */
         case 0x06:
+          if (SubMapperNo == 1) break;
           Map4_Prg0 = dwBankNum;
           Map4_Set_CPU_Banks();
           break;
 
         case 0x07:
+          if (SubMapperNo == 1) break;
           Map4_Prg1 = dwBankNum;
           Map4_Set_CPU_Banks();
           break;

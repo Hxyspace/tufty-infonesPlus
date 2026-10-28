@@ -184,7 +184,7 @@ static inline BYTE __not_in_flash_func(K6502_Read)(WORD wAddr)
     // The other sound registers are not readable.
 
   case 0x6000: /* SRAM */
-    if (MapperNo == 69) return Map69_ReadSram(wAddr);
+    if (MapperReadSram) return MapperReadSram(wAddr);
     return SRAMBANK[wAddr & 0x1fff];
 
     // case 0x8000: /* ROM BANK 0 */
@@ -521,10 +521,12 @@ static inline void __not_in_flash_func(K6502_Write)(WORD wAddr, BYTE byData)
     break;
 
   case 0x6000: /* SRAM */
-    // FME-7 can map ROM or disabled RAM here; never write into borrowed ROM.
-    if (MapperNo == 69) { MapperSram(wAddr, byData); break; }
-    SRAMBANK[wAddr & 0x1fff] = byData;
-    SRAMwritten = true;
+    // Special boards own permissions and dirty tracking; ordinary boards
+    // retain the store-before-notification contract.
+    if (!MapperSramOwnsWrite) {
+      SRAMBANK[wAddr & 0x1fff] = byData;
+      SRAMwritten = true;
+    }
 
     /* Let mapper handle SRAM writes (e.g. bankswitched WRAM) */
     MapperSram(wAddr, byData);

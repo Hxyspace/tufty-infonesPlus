@@ -359,6 +359,8 @@ void (*MapperInit)();
 void (*MapperWrite)(WORD wAddr, BYTE byData);
 /* Write to SRAM */
 void (*MapperSram)(WORD wAddr, BYTE byData);
+BYTE (*MapperReadSram)(WORD wAddr);
+bool MapperSramOwnsWrite;
 /* Write to Apu */
 void (*MapperApu)(WORD wAddr, BYTE byData);
 /* Read from Apu */
@@ -485,6 +487,8 @@ void InfoNES_Fin()
   infones::port::release(SPRRAM);
   RAM = SRAM = PPURAM = SPRRAM = nullptr;
   ROMBANK0 = ROMBANK1 = ROMBANK2 = ROMBANK3 = SRAMBANK = nullptr;
+  MapperReadSram = nullptr;
+  MapperSramOwnsWrite = false;
   for (auto &bank : PPUBANK) bank = nullptr;
   MapperBlobSize = nullptr; MapperSaveBlob = nullptr; MapperLoadBlob = nullptr;
   if (Map5_Wram) { infones::port::release(Map5_Wram); Map5_Wram = nullptr; }
@@ -664,6 +668,11 @@ int InfoNES_Reset()
   /*  Initialize Mapper                                                */
   /*-------------------------------------------------------------------*/
   InfoNES_MessageBox("Using Mapper #%d\n", MapperNo);
+
+  // Every reset starts with the ordinary SRAM bus. Only the active mapper
+  // may override reads or take ownership of writes in its initializer.
+  MapperReadSram = nullptr;
+  MapperSramOwnsWrite = false;
 
   // Clear Mapper function pointers for save/load state
   MapperBlobSize = nullptr;

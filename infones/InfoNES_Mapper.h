@@ -202,6 +202,8 @@ void Map17_HSync();
 void Map18_Init();
 void Map18_Write(WORD wAddr, BYTE byData);
 void Map18_HSync();
+BYTE Map18_ReadSram(WORD address);
+void Map18_Sram(WORD address, BYTE data);
 
 void Map19_Init();
 void Map19_Write(WORD wAddr, BYTE byData);
@@ -223,6 +225,8 @@ void Map22_Write(WORD wAddr, BYTE byData);
 void Map23_Init();
 void Map23_Write(WORD wAddr, BYTE byData);
 void Map23_HSync();
+BYTE Map23_ReadSram(WORD address);
+void Map23_Sram(WORD address, BYTE data);
 
 void Map24_Init();
 void Map24_Write(WORD wAddr, BYTE byData);
@@ -246,7 +250,6 @@ void Map32_Write(WORD wAddr, BYTE byData);
 
 void Map33_Init();
 void Map33_Write(WORD wAddr, BYTE byData);
-void Map33_HSync();
 
 void Map34_Init();
 void Map34_Write(WORD wAddr, BYTE byData);
@@ -562,6 +565,9 @@ void Map154_Write(WORD wAddr, BYTE byData);
 void Map160_Init();
 void Map160_Write(WORD wAddr, BYTE byData);
 void Map160_HSync();
+
+void Map177_Init();
+void Map177_Write(WORD address, BYTE data);
 
 void Map180_Init();
 void Map180_Write(WORD wAddr, BYTE byData);

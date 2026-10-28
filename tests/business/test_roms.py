@@ -110,7 +110,7 @@ class RomTests(unittest.TestCase):
             self.assertEqual(main(args + ["--fix"]), 0)
             self.assertEqual(path.read_bytes(), fixed)
             self.assertEqual(list(backups.rglob("*.bak")), saved)
-            dirty[6] = 0xF0  # Mapper 15 stays unsupported after cleanup.
+            dirty[6] = 0x50  # Mapper 5 stays unsupported after cleanup.
             path.write_bytes(dirty)
             self.assertEqual(main(args + ["--fix"]), 1)
             self.assertEqual(path.read_bytes(), dirty)
@@ -189,7 +189,9 @@ class RomTests(unittest.TestCase):
             self.assertFalse(review(bytes(data), {}, {67}).error)
 
     def test_new_boards_preserve_extended_mapper_and_submapper(self):
-        for mapper, sub in ((24, 0), (25, 0), (25, 2), (268, 0)):
+        for mapper, sub in ((2, 2), (3, 2), (8, 0), (206, 0), (206, 1), (11, 0), (15, 0), (18, 0), (23, 0), (23, 2), (23, 3),
+                            (33, 0), (70, 0), (71, 0), (177, 0), (241, 0),
+                            (24, 0), (25, 0), (25, 2), (268, 0)):
             with self.subTest(mapper=mapper, sub=sub):
                 data = bytearray(self.data)
                 data[6] = (mapper & 15) << 4 | 4  # Keep the fixture's trainer.
@@ -201,7 +203,8 @@ class RomTests(unittest.TestCase):
                 self.assertTrue(any(f"mapper={mapper} " in note for note in result.notes))
                 for unsupported in (1, 3, 15):
                     data[8] = (unsupported << 4) | (mapper >> 8)
-                    self.assertTrue(review(bytes(data), {}, supported_mappers()).error)
+                    self.assertEqual(review(bytes(data), {}, supported_mappers()).error,
+                                     not ((mapper == 23 and unsupported == 3) or (mapper == 206 and unsupported == 1)))
 
     def test_nes2_checksum_correction_updates_all_mapper_bits(self):
         data = bytearray(self.data)

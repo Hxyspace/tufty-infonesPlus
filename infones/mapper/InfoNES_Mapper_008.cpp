@@ -64,15 +64,18 @@ void Map8_Init()
 /*-------------------------------------------------------------------*/
 void Map8_Write( WORD wAddr, BYTE byData )
 {
-  BYTE byPrgBank = ( byData & 0xf8 ) >> 3;
-  BYTE byChrBank = byData & 0x07;
+  // Magic Card latch mode 4: GNROM-style 32 KiB PRG and 8 KiB CHR.
+  // Full FFE mode switching/trainer execution is outside loader admission.
+  BYTE byPrgBank = ((byData >> 4) & 3) * 4;
+  BYTE byChrBank = byData & 3;
 
   /* Set ROM Banks */
-  byPrgBank <<= 1;
   byPrgBank %= ( NesHeader.byRomSize << 1 );
 
   ROMBANK0 = ROMPAGE( byPrgBank + 0 );
   ROMBANK1 = ROMPAGE( byPrgBank + 1 );
+  ROMBANK2 = ROMPAGE( byPrgBank + 2 );
+  ROMBANK3 = ROMPAGE( byPrgBank + 3 );
 
   /* Set PPU Banks */
   byChrBank <<= 3;

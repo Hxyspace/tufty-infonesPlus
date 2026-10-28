@@ -71,7 +71,9 @@ def review(data, rules, mappers, trim_padding=False):
         # Format preflight; firmware additionally validates board RAM/geometry.
         ram = lambda value: sum(64 << n if n else 0 for n in (value & 15, value >> 4))
         reason = None
-        if data[8] & 0xF0 and not (mapper == 25 and data[8] >> 4 == 2):
+        if data[8] & 0xF0 and not ((mapper in (2, 3, 25) and data[8] >> 4 == 2)
+                                 or (mapper == 23 and data[8] >> 4 in (2, 3))
+                                 or (mapper == 206 and data[8] >> 4 == 1)):
             reason = "submapper is unsupported"
         elif mapper > 255 and mapper not in mappers:
             reason = f"extended mapper {mapper} is unsupported"

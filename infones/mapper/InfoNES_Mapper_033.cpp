@@ -5,10 +5,6 @@
 /*===================================================================*/
 
 BYTE Map33_Regs[ 8 ];
-BYTE Map33_Switch;
-
-BYTE Map33_IRQ_Enable;
-BYTE Map33_IRQ_Cnt;
 
 /*-------------------------------------------------------------------*/
 /*  Initialize Mapper 33                                             */
@@ -69,11 +65,6 @@ void Map33_Init()
     }
   }
 
-  /* Initialize State Registers */
-  Map33_Switch = 0;
-  Map33_IRQ_Enable = 0;
-  Map33_IRQ_Cnt = 0;
-
   /* Set up wiring of the interrupt pin */
   K6502_Set_Int_Wiring( 1, 1 ); 
 }
@@ -84,14 +75,18 @@ void Map33_Init()
 void Map33_Write( WORD wAddr, BYTE byData )
 {
   /* Set ROM Banks */
-  switch ( wAddr )
+  // TC0190 decodes A0/A1 and A13. This mapper has no IRQ; TC0690 is 48.
+  switch ( wAddr & 0xa003 )
   {
     case 0x8000:
+      InfoNES_Mirroring( byData & 0x40 ? 0 : 1 );
+      byData &= 0x3f;
       byData %= ( NesHeader.byRomSize << 1 );
       ROMBANK0 = ROMPAGE( byData );
       break;
 
     case 0x8001:
+      byData &= 0x3f;
       byData %= ( NesHeader.byRomSize << 1 );
       ROMBANK1 = ROMPAGE( byData );
       break;
@@ -137,62 +132,5 @@ void Map33_Write( WORD wAddr, BYTE byData )
       PPUBANK[ 7 ] = VROMPAGE( Map33_Regs[ 7 ] % ( NesHeader.byVRomSize << 3 ) );
       InfoNES_SetupChr();
       break;
-
-    case 0xc000:
-      Map33_IRQ_Cnt = byData;
-      break;
-
-    case 0xc001:
-    case 0xc002:
-    case 0xe001:
-    case 0xe002:
-      if ( Map33_IRQ_Cnt == byData )
-      {
-        Map33_IRQ_Enable = 0xff;
-      } else {
-        Map33_IRQ_Enable = byData;
-      }
-      break;
-
-    case 0xe000:
-      if ( byData & 0x40 )
-      {
-        InfoNES_Mirroring( 0 );
-      } else {
-        InfoNES_Mirroring( 1 );
-      }
-      break;
-  }
-}
-
-/*-------------------------------------------------------------------*/
-/*  Mapper 33 H-Sync Function                                        */
-/*-------------------------------------------------------------------*/
-void Map33_HSync()
-{
-/*
- *  Callback at HSync
- *
- */
-  if ( Map33_IRQ_Enable )
-  {
-    if ( Map33_IRQ_Enable == 0xff )
-    {
-      if ( PPU_Scanline == (WORD)( 0xff - Map33_IRQ_Cnt ) )
-      {
-        IRQ_REQ;
-        Map33_IRQ_Cnt = 0;
-        Map33_IRQ_Enable = 0;
-      }
-    } else {
-      if ( Map33_IRQ_Cnt == 0xff )
-      {
-        IRQ_REQ;
-        Map33_IRQ_Cnt = 0;
-        Map33_IRQ_Enable = 0;
-      } else {
-        Map33_IRQ_Cnt++;
-      }
-    }
   }
 }

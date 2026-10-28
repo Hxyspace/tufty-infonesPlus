@@ -8,6 +8,24 @@ BYTE Map18_Regs[11];
 BYTE Map18_IRQ_Enable;
 WORD Map18_IRQ_Latch;
 WORD Map18_IRQ_Cnt;
+static WORD Map18_IRQ_Mask;
+static BYTE Map18_RamControl;
+static unsigned Map18_RamBytes;
+
+BYTE Map18_ReadSram(WORD address)
+{
+  if (Map18_RamBytes && (Map18_RamControl & 1))
+    return SRAM[address & (Map18_RamBytes - 1)];
+  return address >> 8; // Core open-bus approximation.
+}
+
+void Map18_Sram(WORD address, BYTE data)
+{
+  if (Map18_RamBytes && (Map18_RamControl & 3) == 3) {
+    SRAM[address & (Map18_RamBytes - 1)] = data;
+    SRAMwritten = true;
+  }
+}
 
 /*-------------------------------------------------------------------*/
 /*  Initialize Mapper 18                                             */
@@ -21,7 +39,9 @@ void Map18_Init()
   MapperWrite = Map18_Write;
 
   /* Write to SRAM */
-  MapperSram = Map0_Sram;
+  MapperSram = Map18_Sram;
+  MapperReadSram = Map18_ReadSram;
+  MapperSramOwnsWrite = true;
 
   /* Write to APU */
   MapperApu = Map0_Apu;
@@ -58,6 +78,24 @@ void Map18_Init()
   Map18_IRQ_Enable = 0;
   Map18_IRQ_Latch = 0;
   Map18_IRQ_Cnt = 0;
+  Map18_IRQ_Mask = 0xffff;
+  Map18_RamControl = 0;
+  Map18_RamBytes = SRAM_SIZE;
+  if ((NesHeader.byInfo2 & 12) == 8) {
+    const BYTE sizes = NesHeader.byReserve[2];
+    Map18_RamBytes = (sizes & 15 ? 64u << (sizes & 15) : 0) +
+                     (sizes >> 4 ? 64u << (sizes >> 4) : 0);
+  }
+  // Keep the nibble registers in sync with the initial windows.
+  Map18_Regs[1] = 1;
+  Map18_Regs[2] = (NesHeader.byRomSize << 1) - 2;
+  if (NesHeader.byVRomSize) {
+    for (unsigned n = 0; n < 8; ++n) {
+      Map18_Regs[3+n] = n;
+      PPUBANK[n] = VROMPAGE(n);
+    }
+    InfoNES_SetupChr();
+  }
 
   /* Set up wiring of the interrupt pin */
   K6502_Set_Int_Wiring( 1, 1 ); 
@@ -68,7 +106,7 @@ void Map18_Init()
 /*-------------------------------------------------------------------*/
 void Map18_Write( WORD wAddr, BYTE byData )
 {
-  switch( wAddr )
+  switch( wAddr & 0xf003 )
   {
     /* Set ROM Banks */
     case 0x8000:
@@ -99,6 +137,10 @@ void Map18_Write( WORD wAddr, BYTE byData )
     case 0x9001:
       Map18_Regs[ 2 ] = ( Map18_Regs[ 2 ] & 0x0f ) | ( ( byData & 0x0f ) << 4 );
       ROMBANK2 = ROMPAGE( Map18_Regs[ 2 ] % ( NesHeader.byRomSize << 1 ) );
+      break;
+
+    case 0x9002:
+      Map18_RamControl = byData & 3;
       break;
 
     /* Set PPU Banks */
@@ -215,16 +257,18 @@ void Map18_Write( WORD wAddr, BYTE byData )
       break;
 
     case 0xF000:
-      if ( ( byData & 0x01 ) == 0 )
-      {
-        Map18_IRQ_Cnt = 0;
-      } else {
-        Map18_IRQ_Cnt = Map18_IRQ_Latch;
-      }
+      // Any write reloads and acknowledges, independently of data bit 0.
+      Map18_IRQ_Cnt = Map18_IRQ_Latch;
+      if (!(ApuDmcIrqStatus() & 0x80) && !(APU_Reg[0x15] & 0x40))
+        IRQ_State = IRQ_Wiring;
       break;
 
     case 0xF001:
       Map18_IRQ_Enable = byData & 0x01;
+      Map18_IRQ_Mask = byData & 8 ? 0x000f : byData & 4 ? 0x00ff :
+                       byData & 2 ? 0x0fff : 0xffff;
+      if (!(ApuDmcIrqStatus() & 0x80) && !(APU_Reg[0x15] & 0x40))
+        IRQ_State = IRQ_Wiring;
       break;
 
     /* Name Table Mirroring */
@@ -239,6 +283,9 @@ void Map18_Write( WORD wAddr, BYTE byData )
           break;
         case 2:
           InfoNES_Mirroring( 3 );   /* One Screen 0x2000 */
+          break;
+        case 3:
+          InfoNES_Mirroring( 2 );
           break;
       }    
       break;
@@ -256,13 +303,13 @@ void Map18_HSync()
  */
   if ( Map18_IRQ_Enable )
   {
-    if ( Map18_IRQ_Cnt <= 113 )
-    {
-      IRQ_REQ;
-      Map18_IRQ_Cnt = 0;
-      Map18_IRQ_Enable = 0;
-    } else {
-      Map18_IRQ_Cnt -= 113;
-    }
+    // Approximate CPU-clock counting at the existing HSync boundary. The
+    // selected low bits wrap continuously; underflow asserts the IRQ.
+    const unsigned low = Map18_IRQ_Cnt & Map18_IRQ_Mask;
+    const unsigned distance = low + 1;
+    const unsigned cycles = STEP_PER_SCANLINE;
+    if (cycles >= distance) { IRQ_REQ; }
+    Map18_IRQ_Cnt = (Map18_IRQ_Cnt & ~Map18_IRQ_Mask) |
+                   ((Map18_IRQ_Cnt - cycles) & Map18_IRQ_Mask);
   }
 }

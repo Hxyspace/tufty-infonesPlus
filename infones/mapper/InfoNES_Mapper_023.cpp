@@ -9,6 +9,43 @@ BYTE Map23_Regs[ 9 ];
 BYTE Map23_IRQ_Enable;
 BYTE Map23_IRQ_Cnt;
 BYTE Map23_IRQ_Latch;
+static BYTE Map23_Prg0;
+static BYTE Map23_Latch;
+static unsigned Map23_RamBytes;
+static bool Map23_RamEnabled;
+
+static bool Map23_RamMapped(WORD address)
+{
+  // Only explicit VRC4e boards use this gate and the internal 4 KiB decode.
+  // Legacy submapper 0 also covers VRC2 boards without a RAM control bit.
+  return Map23_RamBytes && (SubMapperNo != 2 ||
+    (Map23_RamEnabled && (Map23_RamBytes > 4096 || address < 0x7000)));
+}
+
+static void Map23_SetPrg()
+{
+  ROMBANK0 = Map23_Regs[8] ? ROMLASTPAGE(1) : ROMPAGE(Map23_Prg0);
+  ROMBANK2 = Map23_Regs[8] ? ROMPAGE(Map23_Prg0) : ROMLASTPAGE(1);
+}
+
+BYTE Map23_ReadSram(WORD address)
+{
+  if (Map23_RamMapped(address)) return SRAM[address & (Map23_RamBytes - 1)];
+  // VRC2's one-bit latch is mapped only at $6000-$6fff. Other bits use
+  // the core's address-high approximation of open bus.
+  return (BYTE)((address >> 8 & 0xfe) |
+    (SubMapperNo == 3 && !Map23_RamBytes && address < 0x7000 ? Map23_Latch : address >> 8 & 1));
+}
+
+void Map23_Sram(WORD address, BYTE data)
+{
+  if (Map23_RamMapped(address)) {
+    SRAM[address & (Map23_RamBytes - 1)] = data;
+    SRAMwritten = true;
+  } else if (SubMapperNo == 3 && !Map23_RamBytes && address < 0x7000) {
+    Map23_Latch = data & 1;
+  }
+}
 
 /*-------------------------------------------------------------------*/
 /*  Initialize Mapper 23                                             */
@@ -22,7 +59,9 @@ void Map23_Init()
   MapperWrite = Map23_Write;
 
   /* Write to SRAM */
-  MapperSram = Map0_Sram;
+  MapperSram = Map23_Sram;
+  MapperReadSram = Map23_ReadSram;
+  MapperSramOwnsWrite = true;
 
   /* Write to APU */
   MapperApu = Map0_Apu;
@@ -69,6 +108,14 @@ void Map23_Init()
   Map23_Regs[ 6 ] = 6;
   Map23_Regs[ 7 ] = 7;
   Map23_Regs[ 8 ] = 0;
+  Map23_Prg0 = Map23_Latch = 0;
+  Map23_RamEnabled = false;
+  Map23_RamBytes = SRAM_SIZE;
+  if ((NesHeader.byInfo2 & 12) == 8) {
+    const BYTE sizes = NesHeader.byReserve[2];
+    Map23_RamBytes = (sizes & 15 ? 64u << (sizes & 15) : 0) +
+                     (sizes >> 4 ? 64u << (sizes >> 4) : 0);
+  }
 
   Map23_IRQ_Enable = 0;
   Map23_IRQ_Cnt = 0;
@@ -87,7 +134,14 @@ void Map23_Write( WORD wAddr, BYTE byData )
    * select the sub-register within each $Xxxx block. Canonicalize by OR-ing
    * (A0|A2) and (A1|A3) to get a unified sub-index that works for all
    * variants. This handles any address writes like 0x8FFF → 0x8003 for VRC4f. */
-  wAddr = ( wAddr & 0xF000 ) | ( ( ( wAddr >> 2 ) | wAddr ) & 0x0003 );
+  const WORD select = SubMapperNo == 2 ? wAddr >> 2 :
+                      SubMapperNo == 3 ? wAddr : (wAddr >> 2) | wAddr;
+  wAddr = ( wAddr & 0xF000 ) | ( select & 3 );
+  // A known VRC2b has no PRG swap or IRQ registers, and mirroring is 1 bit.
+  if (SubMapperNo == 3) {
+    if (wAddr >= 0xf000) return;
+    if ((wAddr & 0xf000) == 0x9000) {wAddr = 0x9000; byData &= 1;}
+  }
 
   switch ( wAddr )
   {
@@ -99,13 +153,8 @@ void Map23_Write( WORD wAddr, BYTE byData )
     case 0x8001:
     case 0x8002:
     case 0x8003:
-      byData %= ( NesHeader.byRomSize << 1 );
-      if ( Map23_Regs[ 8 ] )
-      {
-        ROMBANK2 = ROMPAGE( byData );
-      } else {
-        ROMBANK0 = ROMPAGE( byData );
-      }
+      Map23_Prg0 = (byData & 31) % ( NesHeader.byRomSize << 1 );
+      Map23_SetPrg();
       break;
 
     /* $9000/$9001 (VRC4f) and $9000/$9004 (VRC4e) are the mirroring
@@ -132,14 +181,16 @@ void Map23_Write( WORD wAddr, BYTE byData )
     /* PRG swap mode bit. $9002/$9003 for VRC4f, $9008/$900C for VRC4e. */
     case 0x9002:
     case 0x9003:
+      Map23_RamEnabled = byData & 1;
       Map23_Regs[ 8 ] = byData & 0x02;
+      Map23_SetPrg();
       break;
 
     case 0xa000:
     case 0xa001:
     case 0xa002:
     case 0xa003:
-      byData %= ( NesHeader.byRomSize << 1 );
+      byData = (byData & 31) % ( NesHeader.byRomSize << 1 );
       ROMBANK1 = ROMPAGE( byData );
       break;
 
@@ -249,7 +300,9 @@ void Map23_Write( WORD wAddr, BYTE byData )
       break;
 
     case 0xf002:
-      Map23_IRQ_Enable = byData & 0x03;
+      Map23_IRQ_Enable = byData & 0x07;
+      if (!(ApuDmcIrqStatus() & 0x80) && !(APU_Reg[0x15] & 0x40))
+        IRQ_State = IRQ_Wiring;
       if ( Map23_IRQ_Enable & 0x02 )
       {
         Map23_IRQ_Cnt = Map23_IRQ_Latch;
@@ -257,11 +310,13 @@ void Map23_Write( WORD wAddr, BYTE byData )
       break;
 
     case 0xf003:
+      if (!(ApuDmcIrqStatus() & 0x80) && !(APU_Reg[0x15] & 0x40))
+        IRQ_State = IRQ_Wiring;
       if ( Map23_IRQ_Enable & 0x01 )
       {
         Map23_IRQ_Enable |= 0x02;
       } else {
-        Map23_IRQ_Enable &= 0x01;
+        Map23_IRQ_Enable &= ~0x02;
       }
       break;
   }
@@ -278,19 +333,15 @@ void Map23_HSync()
  */
   if ( Map23_IRQ_Enable & 0x02 )
   {
-    if ( Map23_IRQ_Cnt == 0xff )
-    {
+    // Keep scanline-granularity IRQ delivery; cycle mode counts CPU clocks
+    // within that slice instead of silently treating it as scanline mode.
+    const unsigned ticks = Map23_IRQ_Enable & 4 ? STEP_PER_SCANLINE : 1;
+    const unsigned distance = 256u - Map23_IRQ_Cnt;
+    if (ticks >= distance) {
       IRQ_REQ;
-
-      Map23_IRQ_Cnt = Map23_IRQ_Latch;
-      if ( Map23_IRQ_Enable & 0x01 )
-      {
-        Map23_IRQ_Enable |= 0x02;
-      } else {
-        Map23_IRQ_Enable &= 0x01;
-      }
+      Map23_IRQ_Cnt = Map23_IRQ_Latch + (ticks-distance) % (256u-Map23_IRQ_Latch);
     } else {
-      Map23_IRQ_Cnt++;
+      Map23_IRQ_Cnt += ticks;
     }
   }
 }

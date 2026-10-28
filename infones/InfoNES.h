@@ -290,6 +290,11 @@ extern void (*MapperInit)();
 extern void (*MapperWrite)(WORD wAddr, BYTE byData);
 /* Write to SRAM */
 extern void (*MapperSram)(WORD wAddr, BYTE byData);
+/* Optional SRAM read override. Null retains direct SRAMBANK reads. */
+extern BYTE (*MapperReadSram)(WORD wAddr);
+/* True if MapperSram owns the write, including permissions/dirty tracking.
+   False retains the generic store followed by the legacy notification. */
+extern bool MapperSramOwnsWrite;
 /* Write to APU */
 extern void (*MapperApu)(WORD wAddr, BYTE byData);
 /* Read from Apu */

@@ -42,21 +42,33 @@
 
 ## 卡带支持范围
 
-公共加载入口接纳 Mapper **0、1、2、3、4、7、24、25、48、66、69、268**，并施加以下约束：
+公共加载入口接纳 Mapper **0、1、2、3、4、7、8、11、15、18、23、24、25、33、48、66、69、70、71、177、206、241、268**，并施加以下约束：
 
-- PRG ROM 容量为二的幂，范围为 16–512 KiB；存在 CHR ROM 时为 8–256 KiB。
+- PRG ROM 容量为二的幂，通常为 16–512 KiB；Mapper 15、177、241 上限为 1 MiB。存在 CHR ROM 时为 8–256 KiB，并受下列板型限制。
 - CHR ROM 容量为二的幂，Mapper 4 例外：允许以 8 KiB 为单位追加银行，按实际 1 KiB 银行数取模寻址。
 - Mapper 0（NROM）：PRG 不超过 32 KiB，CHR ROM 不超过 8 KiB。
 - Mapper 3（CNROM）：PRG 不超过 32 KiB，必须有 CHR ROM 且不超过 32 KiB。
 - Mapper 2（UxROM）与 Mapper 7（AxROM）：仅使用 CHR RAM。
-- Mapper 48、66 与 69（FME-7 / Sunsoft 5B）：必须有 CHR ROM。
-- Mapper 24（VRC6）与 25（VRC4）：PRG 不超过 256 KiB，必须有 CHR ROM；Mapper 25 额外支持 NES 2.0 submapper 2（VRC4d）的地址接线。VRC IRQ 沿用扫描线级实现，不提供逐 CPU 周期精度。
+- Mapper 2、3 的 NES 2.0 submapper 2 模拟总线冲突；submapper 0 保留无冲突写入兼容行为。
+- Mapper 8：仅接纳无 Trainer 的固定 GNROM 模式，PRG 不超过 128 KiB，必须有 CHR ROM 且不超过 32 KiB；不模拟完整 FFE 模式切换和 IRQ。
+- Mapper 11（Color Dreams）：PRG、CHR ROM 均不超过 128 KiB，也接纳 8 KiB CHR RAM；旧编号覆盖多种板型，保留无冲突写入兼容行为。
+- Mapper 15、241：仅接纳 8 KiB CHR RAM。Mapper 15 保留旧改版 ROM 所需的 CHR 可写和通用 SRAM 行为，不模拟原多合一卡的 CHR 写保护。
+- Mapper 18（Jaleco SS8806）：PRG 不超过 256 KiB，必须有 CHR ROM；支持 RAM 使能/写保护及 4/8/12/16 位 IRQ 计数，按扫描线推进，不提供逐 CPU 周期精度。扩展语音芯片未模拟。
+- Mapper 33、48、66 与 69（FME-7 / Sunsoft 5B）：必须有 CHR ROM。Mapper 33 按 TC0190 接线，无 IRQ；需要 TC0690 IRQ 的卡带应正确声明 Mapper 48。
+- Mapper 23（VRC2/VRC4）、24（VRC6）与 25（VRC4）：PRG 不超过 256 KiB，必须有 CHR ROM；23 额外支持 NES 2.0 submapper 2（VRC4e）、3（VRC2b），25 额外支持 submapper 2（VRC4d）。VRC IRQ 沿用扫描线级实现，不提供逐 CPU 周期精度。23.3 无 IRQ；无 PRG RAM 时提供一位锁存，开放总线以地址高字节近似。
+- Mapper 23.2 支持 WRAM 使能，容量不超过 4 KiB 时仅映射 `$6000–$6FFF`；未明确板型的 23.0 保留兼容 RAM 访问，不套用 VRC4 的使能规则。
+- Mapper 70：PRG、CHR ROM 均不超过 128 KiB，必须有 CHR ROM；沿用旧 70/152 文件的镜像控制兼容行为。
+- Mapper 71：PRG 不超过 256 KiB，仅使用 CHR RAM。
+- Mapper 177（Hengge）：32 KiB PRG 银行切换，上限 1 MiB，仅使用 8 KiB CHR RAM；支持横/纵镜像控制，不接纳四屏声明。NES 2.0 必须声明 8 KiB PRG RAM 或 NVRAM；不提供持久化存档。
+- Mapper 206（DxROM）：PRG 不超过 128 KiB，必须有 CHR ROM 且不超过 64 KiB；额外接纳 submapper 1 的固定 32 KiB PRG，无 IRQ，使用文件头声明的镜像方式。
 - Mapper 268（COOLBOY）：仅接纳 submapper 0、CHR ROM 板型；大容量多合一卡、扩展 CHR RAM 和其他 submapper 尚未开放。
 - 除 Mapper 0、1、3 外，PRG 不小于 32 KiB。
 
 Mapper 69 的 `$6000–$7FFF` 窗口支持 ROM、启用 RAM 和禁用 RAM；ROM 映射不可写，禁用 RAM 的读取以地址高字节近似开放总线。IRQ 计数器按扫描线推进，计数与中断输出开关独立，不提供逐 CPU 周期精度。
 
 准入列表定义于 `core_api/cartridge.hpp`，板型约束位于 `adapters/infones/cartridge.cpp`。核心中保留的其他 Mapper 实现不自动进入公共支持范围。扩展时需要同步补充板型约束与对应行为回归，见[架构中的扩展规则](architecture.md#扩展规则)。
+
+`$6000–$7FFF` 的特殊访问由 Mapper 初始化时配置：`MapperReadSram` 非空时接管读取，`MapperSramOwnsWrite` 为真时由 `MapperSram` 独占写入并负责权限和脏标志。默认仍直接读取 `SRAMBANK`，写入后设置脏标志再通知 `MapperSram`。复位及卸载会清除特殊访问配置；新增板型应注册处理函数，不在 CPU 访存处追加 Mapper 编号判断。
 
 ### iNES
 
@@ -66,7 +78,7 @@ Mapper 69 的 `$6000–$7FFF` 窗口支持 ROM、启用 RAM 和禁用 RAM；ROM 
 
 保留原头，不转换成旧格式。支持范围如下：
 
-- 标准 NES，NTSC / PAL / Dendy 时序，submapper 0 或 Mapper 25 的 submapper 2；多区域声明默认选择 NTSC，核心与宿主帧时钟使用同一解析结果，保留原文件头。
+- 标准 NES，NTSC / PAL / Dendy 时序，submapper 0、Mapper 2/3/25 的 submapper 2、Mapper 23 的 submapper 2/3 或 Mapper 206 的 submapper 1；多区域声明默认选择 NTSC，核心与宿主帧时钟使用同一解析结果，保留原文件头。
 - ROM 大小沿用上述限制，不支持扩展银行计数或指数容量编码。
 - PRG RAM 总量不超过 8 KiB，不混合易失与非易失 PRG RAM；电池标志必须与 PRG NVRAM 声明一致。
 - 无 CHR ROM 时，CHR RAM 必须为 8 KiB；不支持 CHR NVRAM 或 CHR ROM / RAM 混合。

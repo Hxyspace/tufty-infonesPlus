@@ -54,6 +54,10 @@ void Map2_Init()
 /*-------------------------------------------------------------------*/
 void Map2_Write( WORD wAddr, BYTE byData )
 {
+  // NES 2.0 submapper 2 has bus conflicts. Sample the currently mapped
+  // ROM byte before changing banks; legacy submapper 0 keeps its behavior.
+  if ( SubMapperNo == 2 )
+    byData &= ROMBANK[ ( wAddr - 0x8000 ) >> 13 ][ wAddr & 0x1fff ];
   /* Set ROM Banks */
   byData %= NesHeader.byRomSize;
   byData <<= 1;

@@ -77,6 +77,9 @@ void Map3_Write( WORD wAddr, BYTE byData )
 {
   DWORD dwBase;
 
+  if ( SubMapperNo == 2 )
+    byData &= ROMBANK[ ( wAddr - 0x8000 ) >> 13 ][ wAddr & 0x1fff ];
+
   /* Set PPU Banks */
   byData %= NesHeader.byVRomSize;
   dwBase = ( (DWORD)byData ) << 3;

@@ -16,15 +16,17 @@ bool validate_board(const Cartridge &i,const char **error) {
   if(!found)return reject("Unimplemented mapper; no legacy-number fallback");
   if(std::find(admitted_mappers.begin(),admitted_mappers.end(),i.mapper)==admitted_mappers.end())
     return reject("Mapper board geometry is not yet admitted by this loader");
-  // VRC4d has an explicit address decode; other nonzero variants remain gated.
-  if(i.submapper && !(i.mapper==25 && i.submapper==2))
+  // Admit only variants with explicit wiring in the core.
+  if(i.submapper && !(((i.mapper==2 || i.mapper==3 || i.mapper==25) && i.submapper==2) ||
+                     (i.mapper==23 && (i.submapper==2 || i.submapper==3)) ||
+                     (i.mapper==206 && i.submapper==1)))
     return reject("Submapper needs board-specific validation");
   const auto power_of_two=[](std::size_t n){return n && !(n&(n-1));};
   // MMC3 CHR registers wrap by the actual number of 1 KiB banks. Translated
   // images can append CHR banks without rounding the file up to a power of two.
   const bool mmc3_chr=i.mapper==4 && i.chr_size && i.chr_size%8192==0;
   if(!power_of_two(i.prg_size) || (i.chr_size && !power_of_two(i.chr_size) && !mmc3_chr) ||
-     i.prg_size>512*1024 || i.chr_size>256*1024)
+     i.prg_size>(i.mapper==15 || i.mapper==177 || i.mapper==241?1024u:512u)*1024 || i.chr_size>256*1024)
     return reject("Mapper bank geometry needs explicit validation");
   // Initial public loader contract. Other implementations stay in nes_core
   // and must gain geometry/RAM/write-path tests before being admitted here.
@@ -38,10 +40,44 @@ bool validate_board(const Cartridge &i,const char **error) {
     case 3:
       if(i.prg_size>32768 || i.chr_size>32768)return reject("Invalid CNROM geometry");
       chr_required=true;break;
-    case 24:case 25:
+    case 11:
+      if(i.prg_size>128*1024 || i.chr_size>128*1024)
+        return reject("Color Dreams bank addressing exceeded");
+      break;
+    case 8:
+      if(i.prg_size>128*1024 || i.chr_size>32*1024 || (i.header[6]&4))
+        return reject("FFE mapper 8 admission requires fixed GNROM mode without trainer");
+      chr_required=true;break;
+    case 206:
+      if(i.prg_size>128*1024 || i.chr_size>64*1024 ||
+         (i.submapper==1 && i.prg_size!=32768))
+        return reject("Invalid DxROM bank geometry");
+      chr_required=true;break;
+    case 15:
+      if(i.chr_size)return reject("Mapper 15 requires CHR RAM");
+      break;
+    case 18:
+      if(i.prg_size>256*1024)return reject("SS8806 PRG admission exceeds 256 KiB");
+      chr_required=true;break;
+    case 23:case 24:case 25:
       if(i.prg_size>256*1024)return reject("VRC PRG exceeds 256 KiB bank addressing");
       chr_required=true;break;
-    case 48:case 66:case 69:case 268:chr_required=true;break;
+    case 33:case 48:case 66:case 69:case 268:chr_required=true;break;
+    case 70:
+      if(i.prg_size>128*1024 || i.chr_size>128*1024)
+        return reject("Bandai 74161 bank addressing exceeded");
+      chr_required=true;break;
+    case 71:
+      if(i.prg_size>256*1024 || i.chr_size)
+        return reject("Camerica requires PRG <= 256 KiB and CHR RAM");
+      break;
+    case 241:
+      if(i.chr_size)return reject("Mapper 241 admission requires CHR RAM");
+      break;
+    case 177:
+      if(i.chr_size || (i.header[6]&8))
+        return reject("Mapper 177 requires CHR RAM and programmable H/V mirroring");
+      break;
     default:return reject("Mapper board geometry is not yet admitted by this loader");
   }
   if((i.mapper!=0 && i.mapper!=1 && i.mapper!=3 && i.prg_size<32768) ||
@@ -52,6 +88,8 @@ bool validate_board(const Cartridge &i,const char **error) {
     const auto &h=i.header;
     const auto prg_ram=ram(h[10]&15)+ram(h[10]>>4);
     const auto chr_ram=ram(h[11]&15)+ram(h[11]>>4);
+    if(i.mapper==177 && prg_ram!=8192)
+      return reject("Mapper 177 admission requires 8 KiB WRAM");
     // Generic SRAM is 8 KiB; simultaneous volatile/nonvolatile layouts are
     // not modeled. CHR ROM + CHR RAM needs mapper-specific bank wiring.
     if(prg_ram>8192 || ((h[10]&15) && (h[10]>>4)) || (h[11]>>4) ||
