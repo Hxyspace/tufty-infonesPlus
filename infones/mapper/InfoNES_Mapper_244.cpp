@@ -1,72 +1,21 @@
-/*===================================================================*/
-/*                                                                   */
-/*                          Mapper 244                               */
-/*                                                                   */
-/*===================================================================*/
-
-/*-------------------------------------------------------------------*/
-/*  Initialize Mapper 244                                            */
-/*-------------------------------------------------------------------*/
+/* Mapper 244: data bit 3 selects PRG/CHR, upper bits select a permutation. */
 void Map244_Init()
 {
-  /* Initialize Mapper */
+  Map0_Init();
   MapperInit = Map244_Init;
-
-  /* Write to Mapper */
   MapperWrite = Map244_Write;
-
-  /* Write to SRAM */
-  MapperSram = Map0_Sram;
-
-  /* Write to APU */
-  MapperApu = Map0_Apu;
-
-  /* Read from APU */
-  MapperReadApu = Map0_ReadApu;
-
-  /* Callback at VSync */
-  MapperVSync = Map0_VSync;
-
-  /* Callback at HSync */
-  MapperHSync = Map0_HSync;
-
-  /* Callback at PPU */
-  MapperPPU = Map0_PPU;
-
-  /* Callback at Rendering Screen ( 1:BG, 0:Sprite ) */
-  MapperRenderScreen = Map0_RenderScreen;
-
-  /* Set SRAM Banks */
-  SRAMBANK = SRAM;
-
-  /* Set ROM Banks */
-  ROMBANK0 = ROMPAGE( 0 );
-  ROMBANK1 = ROMPAGE( 1 );
-  ROMBANK2 = ROMPAGE( 2 );
-  ROMBANK3 = ROMPAGE( 3 );
-
-  /* Set up wiring of the interrupt pin */
-  K6502_Set_Int_Wiring( 1, 1 ); 
 }
-
-/*-------------------------------------------------------------------*/
-/*  Mapper 244 Write Function                                        */
-/*-------------------------------------------------------------------*/
-void Map244_Write( WORD wAddr, BYTE byData )
+void Map244_Write(WORD, BYTE data)
 {
-  if( wAddr>=0x8065 && wAddr<=0x80A4 ) {
-    /* Set ROM Banks */
-    ROMBANK0 = ROMPAGE(((((wAddr-0x8065)&0x3)<<2)+0) % (NesHeader.byRomSize<<1));
-    ROMBANK1 = ROMPAGE(((((wAddr-0x8065)&0x3)<<2)+1) % (NesHeader.byRomSize<<1));
-    ROMBANK2 = ROMPAGE(((((wAddr-0x8065)&0x3)<<2)+2) % (NesHeader.byRomSize<<1));
-    ROMBANK3 = ROMPAGE(((((wAddr-0x8065)&0x3)<<2)+3) % (NesHeader.byRomSize<<1));
-  }
-  
-  if( wAddr>=0x80A5 && wAddr<=0x80E4 ) {
-    /* Set ROM Banks */
-    ROMBANK0 = ROMPAGE(((((wAddr-0x80A5)&0x7)<<2)+0) % (NesHeader.byRomSize<<1));
-    ROMBANK1 = ROMPAGE(((((wAddr-0x80A5)&0x7)<<2)+1) % (NesHeader.byRomSize<<1));
-    ROMBANK2 = ROMPAGE(((((wAddr-0x80A5)&0x7)<<2)+2) % (NesHeader.byRomSize<<1));
-    ROMBANK3 = ROMPAGE(((((wAddr-0x80A5)&0x7)<<2)+3) % (NesHeader.byRomSize<<1));
-  }
+  static const BYTE prg[4][4] = {
+    {0,1,2,3}, {3,2,1,0}, {0,2,1,3}, {3,1,2,0}
+  };
+  static const BYTE chr[8][8] = {
+    {0,1,2,3,4,5,6,7}, {0,2,1,3,4,6,5,7},
+    {0,1,4,5,2,3,6,7}, {0,4,1,5,2,6,3,7},
+    {0,4,2,6,1,5,3,7}, {0,2,4,6,1,3,5,7},
+    {7,6,5,4,3,2,1,0}, {7,6,5,4,3,2,1,0}
+  };
+  if (data & 8) MapBankChr(0, chr[(data >> 4) & 7][data & 7] * 8, 8);
+  else MapBankPrg(0, prg[(data >> 4) & 3][data & 3] * 4, 4);
 }

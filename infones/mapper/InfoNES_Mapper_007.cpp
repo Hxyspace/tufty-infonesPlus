@@ -7,13 +7,17 @@
 /*-------------------------------------------------------------------*/
 /*  Initialize Mapper 7                                              */
 /*-------------------------------------------------------------------*/
+static void Map7_ConflictWrite(WORD address, BYTE data)
+{
+  Map7_Write(address, MapBusConflict(address, data));
+}
 void Map7_Init()
 {
   /* Initialize Mapper */
   MapperInit = Map7_Init;
 
   /* Write to Mapper */
-  MapperWrite = Map7_Write;
+  MapperWrite = SubMapperNo == 2 ? Map7_ConflictWrite : Map7_Write;
 
   /* Write to SRAM */
   MapperSram = Map0_Sram;

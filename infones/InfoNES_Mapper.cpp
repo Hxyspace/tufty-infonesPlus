@@ -199,6 +199,7 @@ const struct MapperTable_tag MapperTable[] =
 /* Shared by mappers 30 and 111, so it has to come first. */
 #include "mapper/InfoNES_SstFlash.cpp"
 
+#include "mapper/InfoNES_Mapper_Banks.h"
 #include "mapper/InfoNES_Mapper_000.cpp"
 #include "mapper/InfoNES_Mapper_001.cpp"
 #include "mapper/InfoNES_Mapper_002.cpp"

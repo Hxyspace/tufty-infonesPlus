@@ -493,13 +493,9 @@ void Map111_Write(WORD wAddr, BYTE byData);
 
 void Map112_Init();
 void Map112_Write(WORD wAddr, BYTE byData);
-void Map112_HSync();
-void Map112_Set_CPU_Banks();
-void Map112_Set_PPU_Banks();
 
 void Map113_Init();
 void Map113_Apu(WORD wAddr, BYTE byData);
-void Map113_Write(WORD wAddr, BYTE byData);
 
 void Map114_Init();
 void Map114_Sram(WORD wAddr, BYTE byData);
