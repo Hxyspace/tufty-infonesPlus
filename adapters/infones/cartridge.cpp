@@ -20,6 +20,7 @@ bool validate_board(const Cartridge &i,const char **error) {
   if(i.submapper && !(((i.mapper==2 || i.mapper==3 || i.mapper==7 || i.mapper==25) && i.submapper==2) ||
                      (i.mapper==23 && (i.submapper==2 || i.submapper==3)) ||
                      (i.mapper==206 && i.submapper==1) ||
+                     (i.mapper==210 && i.submapper==2) ||
                      (i.mapper==34 && (i.submapper==1 || i.submapper==2)) ||
                      (i.mapper==78 && (i.submapper==1 || i.submapper==3))))
     return reject("Submapper needs board-specific validation");
@@ -60,6 +61,14 @@ bool validate_board(const Cartridge &i,const char **error) {
       break;
     case 18:
       if(i.prg_size>256*1024)return reject("SS8806 PRG admission exceeds 256 KiB");
+      chr_required=true;break;
+    case 22:case 80:case 207:
+      if(i.prg_size>256*1024 || i.chr_size>128*1024 || (i.header[6]&8))
+        return reject("VRC2a/X1-005 requires PRG <= 256 KiB, CHR <= 128 KiB and no four-screen");
+      chr_required=true;break;
+    case 210:
+      if(!i.nes2 || i.submapper!=2 || (i.header[6]&8))
+        return reject("Mapper 210 admission requires explicit Namco 340 submapper 2");
       chr_required=true;break;
     case 23:case 24:case 25:
       if(i.prg_size>256*1024)return reject("VRC PRG exceeds 256 KiB bank addressing");
@@ -155,6 +164,10 @@ bool validate_board(const Cartridge &i,const char **error) {
     const auto &h=i.header;
     const auto prg_ram=ram(h[10]&15)+ram(h[10]>>4);
     const auto chr_ram=ram(h[11]&15)+ram(h[11]>>4);
+    if((i.mapper==80 || i.mapper==207) && prg_ram && prg_ram!=128)
+      return reject("X1-005 has 128 bytes of internal RAM");
+    if(i.mapper==210 && prg_ram)
+      return reject("Namco 340 has no PRG RAM");
     if(i.mapper==177 && prg_ram!=8192)
       return reject("Mapper 177 admission requires 8 KiB WRAM");
     if(i.mapper==242 && prg_ram!=8192)

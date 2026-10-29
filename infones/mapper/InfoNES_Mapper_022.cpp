@@ -1,162 +1,57 @@
-/*===================================================================*/
-/*                                                                   */
-/*                  Mapper 22 (Konami VRC2 type A)                   */
-/*                                                                   */
-/*===================================================================*/
+/* Mapper 22: VRC2a, swapped A0/A1 and CHR A0 disconnected. */
+static BYTE Map22_Chr[8];
+static BYTE Map22_Latch;
+static unsigned Map22_RamBytes;
 
-/*-------------------------------------------------------------------*/
-/*  Initialize Mapper 22                                             */
-/*-------------------------------------------------------------------*/
-void Map22_Init()
+static BYTE Map22_ReadSram(WORD address)
 {
-  /* Initialize Mapper */
-  MapperInit = Map22_Init;
-
-  /* Write to Mapper */
-  MapperWrite = Map22_Write;
-
-  /* Write to SRAM */
-  MapperSram = Map0_Sram;
-
-  /* Write to APU */
-  MapperApu = Map0_Apu;
-
-  /* Read from APU */
-  MapperReadApu = Map0_ReadApu;
-
-  /* Callback at VSync */
-  MapperVSync = Map0_VSync;
-
-  /* Callback at HSync */
-  MapperHSync = Map0_HSync;
-
-  /* Callback at PPU */
-  MapperPPU = Map0_PPU;
-
-  /* Callback at Rendering Screen ( 1:BG, 0:Sprite ) */
-  MapperRenderScreen = Map0_RenderScreen;
-
-  /* Set SRAM Banks */
-  SRAMBANK = SRAM;
-
-  /* Set ROM Banks */
-  ROMBANK0 = ROMPAGE( 0 );
-  ROMBANK1 = ROMPAGE( 1 );
-  ROMBANK2 = ROMLASTPAGE( 1 );
-  ROMBANK3 = ROMLASTPAGE( 0 );
-
-  /* Set PPU Banks */
-  if ( NesHeader.byVRomSize > 0 )
-  {
-    for ( int nPage = 0; nPage < 8; ++nPage )
-      PPUBANK[ nPage ] = VROMPAGE( nPage );
-    InfoNES_SetupChr();
-  }
-
-  /* Set up wiring of the interrupt pin */
-  K6502_Set_Int_Wiring( 1, 1 ); 
+  if (Map22_RamBytes) return SRAM[address & (Map22_RamBytes - 1)];
+  return (BYTE)((address >> 8 & 0xfe) |
+    (address < 0x7000 ? Map22_Latch : address >> 8 & 1));
 }
 
-/*-------------------------------------------------------------------*/
-/*  Mapper 22 Write Function                                         */
-/*-------------------------------------------------------------------*/
-void Map22_Write( WORD wAddr, BYTE byData )
+static void Map22_Sram(WORD address, BYTE data)
 {
-  switch ( wAddr )
-  {
-    case 0x8000:
-      /* Set ROM Banks */
-      byData %= ( NesHeader.byRomSize << 1 );
-      ROMBANK0 = ROMPAGE( byData );
-      break;
+  if (Map22_RamBytes) {
+    SRAM[address & (Map22_RamBytes - 1)] = data;
+    SRAMwritten = true;
+  } else if (address < 0x7000) {
+    Map22_Latch = data & 1;
+  }
+}
 
-    case 0x9000:
-      /* Name Table Mirroring */
-      switch ( byData & 0x03 )
-      {
-        case 0:
-          InfoNES_Mirroring( 1 );   /* Vertical */
-          break;
-        case 1:
-          InfoNES_Mirroring( 0 );   /* Horizontal */
-          break;
-        case 2:
-          InfoNES_Mirroring( 2 );   /* One Screen 0x2000 */
-          break;
-        case 3:
-          InfoNES_Mirroring( 3 );   /* One Screen 0x2400 */
-          break;
-      }
-      break;
+void Map22_Init()
+{
+  Map0_Init();
+  MapperInit = Map22_Init;
+  MapperWrite = Map22_Write;
+  MapperSram = Map22_Sram;
+  MapperReadSram = Map22_ReadSram;
+  MapperSramOwnsWrite = true;
+  Map22_Latch = 0;
+  Map22_RamBytes = 8192; // iNES does not specify absent WRAM reliably.
+  if ((NesHeader.byInfo2 & 0x0c) == 8) {
+    BYTE sizes = NesHeader.byReserve[2];
+    Map22_RamBytes = (sizes & 15 ? 64u << (sizes & 15) : 0) +
+                    (sizes >> 4 ? 64u << (sizes >> 4) : 0);
+  }
+  for (unsigned n = 0; n < 8; ++n) Map22_Chr[n] = n * 2;
+  ROMBANK2 = ROMLASTPAGE(1);
+  ROMBANK3 = ROMLASTPAGE(0);
+}
 
-    case 0xa000:
-      /* Set ROM Banks */
-      byData %= ( NesHeader.byRomSize << 1 );
-      ROMBANK1 = ROMPAGE( byData );
-      break;
-    
-    case 0xb000:
-      /* Set PPU Banks */
-      byData >>= 1;
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 0 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break;
-
-    case 0xb001:
-      /* Set PPU Banks */
-      byData >>= 1;
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 1 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break;
-    
-    case 0xc000:
-      /* Set PPU Banks */
-      byData >>= 1;
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 2 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break;
-
-    case 0xc001:
-      /* Set PPU Banks */
-      byData >>= 1;
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 3 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break;
-          
-    case 0xd000:
-      /* Set PPU Banks */
-      byData >>= 1;
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 4 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break;
-
-    case 0xd001:
-      /* Set PPU Banks */
-      byData >>= 1;
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 5 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break;
-          
-    case 0xe000:
-      /* Set PPU Banks */
-      byData >>= 1;
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 6 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break;
-
-    case 0xe001:
-      /* Set PPU Banks */
-      byData >>= 1;
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 7 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break; 
+void Map22_Write(WORD address, BYTE data)
+{
+  const unsigned group = address >> 12;
+  if (group == 8 || group == 10) {
+    ROMBANK[group == 8 ? 0 : 1] = ROMPAGE((data & 31) % (NesHeader.byRomSize * 2));
+  } else if (group == 9) {
+    InfoNES_Mirroring(data & 1 ? 0 : 1);
+  } else if (group >= 11 && group <= 14) {
+    const unsigned slot = (group - 11) * 2 + (address & 1);
+    const unsigned shift = address & 2 ? 4 : 0;
+    Map22_Chr[slot] = (Map22_Chr[slot] & ~(15u << shift)) | ((data & 15) << shift);
+    PPUBANK[slot] = VROMPAGE((Map22_Chr[slot] >> 1) % (NesHeader.byVRomSize * 8));
+    InfoNES_SetupChr();
   }
 }

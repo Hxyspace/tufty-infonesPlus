@@ -1,188 +1,67 @@
-/*===================================================================*/
-/*                                                                   */
-/*                     Mapper 80 (Taito X1-005)                      */
-/*                                                                   */
-/*===================================================================*/
-
-/* Set by mapper 207, whose name tables follow bit 7 of $7EF0/$7EF1 in
-   place of the $7EF6 mirroring register. */
+/* Mapper 80 / 207: Taito X1-005, 128-byte protected RAM. */
 static bool Map80_Alt_Mirroring;
+static BYTE Map80_RamPermission;
 
-/*-------------------------------------------------------------------*/
-/*  Save state support: the name table mapping                       */
-/*-------------------------------------------------------------------*/
-/* state.cpp puts the header mirroring back after restoring the banks,
- * which would undo what the game last wrote to $7EF6 (or, on mapper 207,
- * to bit 7 of $7EF0/$7EF1). */
-static int Map80_BlobSize()
+static int Map80_BlobSize() { return 5; }
+static void Map80_SaveBlob(BYTE *out)
 {
-  return 4;
+  for (unsigned n = 0; n < 4; ++n)
+    out[n] = (BYTE)((PPUBANK[NAME_TABLE0 + n] - VRAMPAGE(0)) / 0x400);
+  out[4] = Map80_RamPermission;
+}
+static void Map80_LoadBlob(BYTE *in)
+{
+  for (unsigned n = 0; n < 4; ++n)
+    PPUBANK[NAME_TABLE0 + n] = VRAMPAGE(in[n] & 1);
+  Map80_RamPermission = in[4];
+}
+static BYTE Map80_ReadSram(WORD address)
+{
+  return address >= 0x7f00 && Map80_RamPermission == 0xa3
+    ? SRAM[address & 0x7f] : (BYTE)(address >> 8);
 }
 
-static void Map80_SaveBlob( BYTE *pBuf )
-{
-  for ( int i = 0; i < 4; ++i )
-    pBuf[ i ] = (BYTE)( ( PPUBANK[ NAME_TABLE0 + i ] - VRAMPAGE( 0 ) ) / 0x400 );
-}
-
-static void Map80_LoadBlob( BYTE *pBuf )
-{
-  for ( int i = 0; i < 4; ++i )
-    PPUBANK[ NAME_TABLE0 + i ] = VRAMPAGE( pBuf[ i ] & 0x03 );
-}
-
-/*-------------------------------------------------------------------*/
-/*  Initialize Mapper 80                                             */
-/*-------------------------------------------------------------------*/
 void Map80_Init()
 {
-  /* Initialize Mapper */
+  Map0_Init();
   MapperInit = Map80_Init;
-
-  /* Write to Mapper */
-  MapperWrite = Map0_Write;
-
-  /* Write to SRAM */
   MapperSram = Map80_Sram;
-
-  /* Write to APU */
-  MapperApu = Map0_Apu;
-
-  /* Read from APU */
-  MapperReadApu = Map0_ReadApu;
-
-  /* Callback at VSync */
-  MapperVSync = Map0_VSync;
-
-  /* Callback at HSync */
-  MapperHSync = Map0_HSync;
-
-  /* Callback at PPU */
-  MapperPPU = Map0_PPU;
-
-  /* Callback at Rendering Screen ( 1:BG, 0:Sprite ) */
-  MapperRenderScreen = Map0_RenderScreen;
-
-  /* Set SRAM Banks */
-  SRAMBANK = SRAM;
-
-  /* Set ROM Banks */
-  ROMBANK0 = ROMPAGE( 0 );
-  ROMBANK1 = ROMPAGE( 1 );
-  ROMBANK2 = ROMLASTPAGE( 1 );
-  ROMBANK3 = ROMLASTPAGE( 0 );
-
-  /* Set PPU Banks */
-  if ( NesHeader.byVRomSize > 0 )
-  {
-    for ( int nPage = 0; nPage < 8; ++nPage )
-      PPUBANK[ nPage ] = VROMPAGE( nPage );
-    InfoNES_SetupChr();
-  }
-
-  /* Older dumps of Fudou Myouou Den carry a mapper 80 header */
-  Map80_Alt_Mirroring = ( InfoNES_RomCrc == 0x7678F1D5 );
-
-  /* Save state hooks (cleared on every reset, so install them here) */
+  MapperReadSram = Map80_ReadSram;
+  MapperSramOwnsWrite = true;
+  ROMBANK2 = ROMLASTPAGE(1);
+  ROMBANK3 = ROMLASTPAGE(0);
+  Map80_Alt_Mirroring = false; // Alternate wiring is explicitly mapper 207.
+  Map80_RamPermission = 0;
   MapperBlobSize = Map80_BlobSize;
   MapperSaveBlob = Map80_SaveBlob;
   MapperLoadBlob = Map80_LoadBlob;
-
-  /* Set up wiring of the interrupt pin */
-  K6502_Set_Int_Wiring( 1, 1 ); 
 }
 
-/*-------------------------------------------------------------------*/
-/*  Mapper 80 Write to SRAM Function                                 */
-/*-------------------------------------------------------------------*/
-void Map80_Sram( WORD wAddr, BYTE byData )
+void Map80_Sram(WORD address, BYTE data)
 {
-  switch ( wAddr )
-  {
-    /* Set PPU Banks */
-    case 0x7ef0:
-      /* Mapper 207: bit 7 selects the CIRAM page for nametables 0 and 1 */
-      if ( Map80_Alt_Mirroring )
-      {
-        PPUBANK[ NAME_TABLE0 ] = VRAMPAGE( byData >> 7 );
-        PPUBANK[ NAME_TABLE1 ] = VRAMPAGE( byData >> 7 );
-      }
-
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 0 ] = VROMPAGE( byData );
-      PPUBANK[ 1 ] = VROMPAGE( byData + 1 );
-      InfoNES_SetupChr();
-      break;
-
-    case 0x7ef1:
-      /* Mapper 207: bit 7 selects the CIRAM page for nametables 2 and 3 */
-      if ( Map80_Alt_Mirroring )
-      {
-        PPUBANK[ NAME_TABLE2 ] = VRAMPAGE( byData >> 7 );
-        PPUBANK[ NAME_TABLE3 ] = VRAMPAGE( byData >> 7 );
-      }
-
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 2 ] = VROMPAGE( byData );
-      PPUBANK[ 3 ] = VROMPAGE( byData + 1 );
-      InfoNES_SetupChr();
-      break;
-  
-    case 0x7ef2:
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 4 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break;      
-
-    case 0x7ef3:
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 5 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break;  
-
-    case 0x7ef4:
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 6 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break; 
-
-    case 0x7ef5:
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ 7 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break; 
-
-    /* Name Table Mirroring (not connected on mapper 207) */
-    case 0x7ef6:
-    case 0x7ef7:
-      if ( !Map80_Alt_Mirroring )
-      {
-        if ( byData & 0x01 )
-        {
-          InfoNES_Mirroring( 1 );
-        } else {
-          InfoNES_Mirroring( 0 );
-        }
-      }
-      break;
-
-    /* Set ROM Banks */
-    case 0x7efa:
-    case 0x7efb:
-      byData %= ( NesHeader.byRomSize << 1 );
-      ROMBANK0 = ROMPAGE( byData );
-      break;
-
-    case 0x7efc:
-    case 0x7efd:
-      byData %= ( NesHeader.byRomSize << 1 );
-      ROMBANK1 = ROMPAGE( byData );
-      break;
-
-    case 0x7efe:
-    case 0x7eff:
-      byData %= ( NesHeader.byRomSize << 1 );
-      ROMBANK2 = ROMPAGE( byData );
-      break;
+  if (address >= 0x7f00) {
+    if (Map80_RamPermission == 0xa3) {
+      SRAM[address & 0x7f] = data;
+      SRAMwritten = true;
+    }
+  } else if (address == 0x7ef0 || address == 0x7ef1) {
+    const unsigned pair = address & 1;
+    const unsigned pages = NesHeader.byVRomSize * 8;
+    PPUBANK[pair * 2] = VROMPAGE(data % pages);
+    PPUBANK[pair * 2 + 1] = VROMPAGE((unsigned(data) + 1) % pages);
+    if (Map80_Alt_Mirroring) {
+      PPUBANK[NAME_TABLE0 + pair * 2] = VRAMPAGE(data >> 7);
+      PPUBANK[NAME_TABLE1 + pair * 2] = VRAMPAGE(data >> 7);
+    }
+    InfoNES_SetupChr();
+  } else if (address >= 0x7ef2 && address <= 0x7ef5) {
+    PPUBANK[address - 0x7ef2 + 4] = VROMPAGE(data % (NesHeader.byVRomSize * 8));
+    InfoNES_SetupChr();
+  } else if (address == 0x7ef6 || address == 0x7ef7) {
+    if (!Map80_Alt_Mirroring) InfoNES_Mirroring(data & 1 ? 1 : 0);
+  } else if (address == 0x7ef8 || address == 0x7ef9) {
+    Map80_RamPermission = data;
+  } else if (address >= 0x7efa && address <= 0x7eff) {
+    ROMBANK[(address - 0x7efa) / 2] = ROMPAGE(data % (NesHeader.byRomSize * 2));
   }
 }

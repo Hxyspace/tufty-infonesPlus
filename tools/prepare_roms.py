@@ -74,6 +74,7 @@ def review(data, rules, mappers, trim_padding=False):
         if data[8] & 0xF0 and not ((mapper in (2, 3, 7, 25) and data[8] >> 4 == 2)
                                  or (mapper == 23 and data[8] >> 4 in (2, 3))
                                  or (mapper == 206 and data[8] >> 4 == 1)
+                                 or (mapper == 210 and data[8] >> 4 == 2)
                                  or (mapper == 34 and data[8] >> 4 in (1, 2))
                                  or (mapper == 78 and data[8] >> 4 in (1, 3))):
             reason = "submapper is unsupported"

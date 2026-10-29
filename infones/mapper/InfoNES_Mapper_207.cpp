@@ -20,4 +20,5 @@ void Map207_Init()
 
   /* Name tables follow the CHR bank registers */
   Map80_Alt_Mirroring = true;
+  InfoNES_Mirroring(3);
 }

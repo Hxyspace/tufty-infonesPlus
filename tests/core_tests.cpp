@@ -294,6 +294,7 @@ static void admitted_bank_bounds() {
     if(large && mapper==8)chr_banks=4;
     if(large && mapper==206)chr_banks=8;
     switch(mapper){
+      case 22:case 80:case 207:prg_banks=large?16:2;chr_banks=large?16:1;break;
       case 32:prg_banks=large?16:2;break;
       case 34:case 226:prg_banks=large?64:2;chr_banks=0;break;
       case 140:prg_banks=large?8:2;chr_banks=large?16:1;break;
@@ -313,6 +314,7 @@ static void admitted_bank_bounds() {
     std::memcpy(rom.data(),"NES\x1a",4);rom[4]=prg_banks;rom[5]=chr_banks;
     rom[6]=(mapper&15)<<4;rom[7]=mapper&0xf0;
     if(mapper==78){rom[7]|=8;rom[8]=0x30;}
+    if(mapper==210){rom[7]|=8;rom[8]=0x20;}
     if(mapper==242)rom[6]|=2;
     if(mapper>255){rom[7]|=8;rom[8]=mapper>>8;}
     const char *error=nullptr;
@@ -1183,6 +1185,127 @@ static void bank_switch_boards() {
   }
   finish();
 }
-int main(){nrom();dendy_vblank_scroll();mapper48();clipping();cpu_operands();audio_backpressure();simple_mapper_boards();hengge177();discrete_board_registers();bank_switch_boards();medium_mapper_boards();mapper_ram_permissions();sram_dispatch_lifecycle();
+static void vrc2_taito_namco_boards() {
+  auto start=[](std::vector<BYTE>&r){assert(nes::infones_adapter::load(r.data(),r.size()));};
+  auto finish=[]{nes::infones_adapter::unload();assert(allocations==0);};
+  auto pb=[](unsigned slot,unsigned page){assert(ROMBANK[slot]==ROM+page*8192);};
+  auto cb=[](unsigned slot,unsigned page){assert(PPUBANK[slot]==VROM+page*1024);};
+  auto nt=[](unsigned a,unsigned b,unsigned c,unsigned d){
+    unsigned pages[]={a,b,c,d};
+    for(unsigned n=0;n<4;++n)assert(PPUBANK[8+n]==PPURAM+(8+pages[n])*1024);
+  };
+  auto write=[](WORD address,BYTE value){
+    const BYTE code[]={0xa9,value,0x8d,BYTE(address),BYTE(address>>8),0x4c,5,2};
+    std::copy(std::begin(code),std::end(code),RAM+0x200);
+    PC=0x200;SRAMwritten=false;K6502_Step(40);
+  };
+  auto read=[](WORD address){
+    const BYTE code[]={0xad,BYTE(address),BYTE(address>>8),0x85,0x07,0x4c,5,2};
+    std::copy(std::begin(code),std::end(code),RAM+0x200);
+    PC=0x200;K6502_Step(40);return RAM[7];
+  };
+  {
+    auto r=banked_cartridge(22,16,true);start(r);
+    for(unsigned v=0;v<256;++v){
+      MapperWrite(0x8fff,v);MapperWrite(0xafff,v^7);
+      pb(0,(v&31)%16);pb(1,((v^7)&31)%16);pb(2,14);pb(3,15);
+      MapperWrite(0x9fff,v);if(v&1)nt(0,0,1,1);else nt(0,1,0,1);
+      for(unsigned slot=0;slot<8;++slot){
+        WORD low=0xbffc+(slot/2)*0x1000+(slot%2);
+        MapperWrite(low,0xa0|(v&15));MapperWrite(low+2,0x50|(v>>4));
+        cb(slot,v>>1); // A0 chooses the tile bank, A1 the nibble.
+        MapperWrite(low,0);cb(slot,(v&0xf0)>>1);
+      }
+    }
+    SRAM[0]=0x43;write(0x6000,1);assert(!SRAMwritten && SRAM[0]==0x43);
+    assert(read(0x6000)==0x61 && read(0x6100)==0x61 && read(0x7000)==0x70);
+    write(0x7000,0);assert(read(0x6000)==0x61);
+    write(0x6fff,0);assert(read(0x6100)==0x60);
+    IRQ_State=IRQ_Wiring;MapperWrite(0xf003,0xff);MapperHSync();
+    assert(IRQ_State==IRQ_Wiring && MapperHSync==Map0_HSync);
+    write(0x6000,1);assert(InfoNES_Reset()==0);assert(read(0x6000)==0x60);
+    MapperWrite(0xb000,0);cb(0,0);finish();
+  }
+  for(BYTE ram:{BYTE(5),BYTE(7),BYTE(0x70)}){
+    auto r=banked_cartridge(22,1,true);r[10]=ram;if(ram>>4)r[6]|=2;
+    start(r);write(0x6007,0x59);assert(SRAMwritten);
+    assert(read(0x6007)==0x59);
+    if(ram==5)assert(read(0x6807)==0x59);
+    write(0x7fff,0x95);assert(SRAMwritten && read(0x7fff)==0x95);finish();
+  }
+  for(unsigned mapper:{80,207})for(bool battery:{false,true}){
+    auto r=banked_cartridge(mapper,16,true);r[10]=battery?0x10:1;
+    if(battery)r[6]|=2;
+    start(r);if(mapper==207)nt(0,0,0,0);
+    for(unsigned v=0;v<256;++v){
+      for(unsigned reg=0;reg<2;++reg){
+        MapperSram(0x7ef0+reg,v);cb(reg*2,v%128);cb(reg*2+1,(v+1)%128);
+      }
+      for(unsigned reg=2;reg<6;++reg){MapperSram(0x7ef0+reg,v);cb(reg+2,v%128);}
+      for(unsigned reg=0;reg<6;++reg){MapperSram(0x7efa+reg,v);pb(reg/2,v%16);}
+      MapperSram(0x7ef6,v);MapperSram(0x7ef7,v);
+      if(mapper==207)nt(v>>7,v>>7,v>>7,v>>7);
+      else if(v&1)nt(0,1,0,1);else nt(0,0,1,1);
+      for(WORD permission:{0x7ef8,0x7ef9}){
+        SRAM[7]=0x3c;write(permission,v);assert(!SRAMwritten);
+        write(0x7f87,0x53);
+        assert(SRAMwritten==(v==0xa3));
+        assert(SRAM[7]==(v==0xa3?0x53:0x3c));
+        assert(read(0x7f07)==(v==0xa3?0x53:0x7f));
+        assert(read(0x7f87)==(v==0xa3?0x53:0x7f));
+      }
+    }
+    write(0x7ef8,0xa3);write(0x6000,0x54);assert(!SRAMwritten && read(0x6000)==0x60);
+    write(0x7eff,7);assert(!SRAMwritten);pb(2,7);pb(3,15);
+    if(mapper==207){write(0x7ef0,0x80);write(0x7ef1,0);nt(1,1,0,0);}
+    BYTE saved[5];assert(MapperBlobSize()==5);MapperSaveBlob(saved);
+    write(0x7ef8,0);write(0x7ef0,0);MapperLoadBlob(saved);
+    write(0x7fff,0x97);assert(SRAMwritten && read(0x7f7f)==0x97);
+    if(mapper==207)nt(1,1,0,0);
+    assert(InfoNES_Reset()==0);write(0x7f00,0x57);assert(!SRAMwritten && read(0x7f00)==0x7f);
+    if(mapper==207)nt(0,0,0,0);
+    assert(MapperHSync==Map0_HSync);finish();
+  }
+  {
+    auto r=banked_cartridge(210,32,true);r[8]=0x20;start(r);nt(0,0,0,0);
+    for(unsigned v=0;v<256;++v){
+      for(unsigned slot=0;slot<8;++slot){MapperWrite(0x87ff+slot*0x800,v);cb(slot,v);}
+      for(unsigned slot=0;slot<3;++slot){MapperWrite(0xe7ff+slot*0x800,v);pb(slot,v%16);}
+      switch(v>>6){case 0:nt(0,0,0,0);break;case 1:nt(0,1,0,1);break;
+        case 2:nt(0,0,1,1);break;case 3:nt(1,1,1,1);break;}
+      for(WORD a:{0xc000,0xc800,0xd000,0xd800,0xf800})MapperWrite(a,v);
+      // Namco 340 must never map CHR ROM as writable nametable memory.
+      for(unsigned n=8;n<12;++n)assert(PPUBANK[n]==PPURAM+0x2000 || PPUBANK[n]==PPURAM+0x2400);
+      pb(3,15);
+    }
+    const auto original=r;write(0x2006,0x20);write(0x2006,0);write(0x2007,0x43);
+    assert(r==original);
+    SRAM[0]=0x65;write(0x6000,0x57);assert(!SRAMwritten && SRAM[0]==0x65 && read(0x6000)==0x60);
+    assert(InfoNES_Reset()==0);nt(0,0,0,0);pb(0,0);pb(2,14);
+    assert(MapperHSync==Map0_HSync);finish();
+  }
+  auto live=banked_cartridge(22,1,true);start(live);auto before=ROM;
+  for(unsigned mapper:{22,80,207,210})for(unsigned kind=0;kind<7;++kind){
+    auto r=banked_cartridge(mapper,16,true);if(mapper==210)r[8]=0x20;
+    if(kind==0){r[5]=0;r[11]=7;r.resize(16+128*1024);}
+    if(kind==1)r[6]|=8;
+    if(kind==2)r[8]=0x10;
+    if(kind==3){r[4]=mapper==210?64:32;r.resize(16+r[4]*16384+r[5]*8192);}
+    if(kind==4){if(mapper==210)r[10]=7;else {r[5]=32;r.resize(16+128*1024+256*1024);}}
+    if(kind==5)r[11]=7;
+    if(kind==6)r[10]=8;
+    assert(!nes::infones_adapter::load(r.data(),r.size()));assert(ROM==before);
+  }
+  for(unsigned sub:{0,1,3}){
+    auto r=banked_cartridge(210,16,true);r[8]=sub<<4;
+    assert(!nes::infones_adapter::load(r.data(),r.size()));
+  }
+  for(unsigned mapper:{80,207}){
+    auto r=banked_cartridge(mapper,1,true);r[10]=7;
+    assert(!nes::infones_adapter::load(r.data(),r.size()));
+  }
+  finish();
+}
+int main(){nrom();dendy_vblank_scroll();mapper48();clipping();cpu_operands();audio_backpressure();simple_mapper_boards();hengge177();discrete_board_registers();bank_switch_boards();medium_mapper_boards();mapper_ram_permissions();sram_dispatch_lifecycle();vrc2_taito_namco_boards();
   cartridge_loading();lifecycle_and_oom();admitted_bank_bounds();mapper8_and_dxrom();mmc3_appended_chr();sunsoft69();newly_admitted_boards();
   puts("core cartridge regression passed");}
