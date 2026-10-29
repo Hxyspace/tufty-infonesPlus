@@ -81,7 +81,7 @@ extern BYTE *Map111_Chr_Ram;
 
 /* Small per-mapper buffers, allocated on first init via f_malloc so the
    other games do not carry them in static RAM. */
-extern BYTE *Map19_Chr_Ram;         /* Namco 163: 8KB CHR RAM */
+extern BYTE *Map19_Internal;       /* Namco 163: 128-byte internal RAM */
 extern BYTE *Map185_Dummy_Chr_Rom;  /* CNROM protection: 1KB of 0xFF */
 extern BYTE *Map188_Dummy;          /* Karaoke Studio: 8KB $6000 window */
 extern BYTE *Map16_Eeprom;          /* Bandai LZ93D50: 24C02 and/or 24C01 EEPROM */

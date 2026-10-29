@@ -1,352 +1,165 @@
-/*===================================================================*/
-/*                                                                   */
-/*                    Mapper 19 (Namcot 106)                         */
-/*                                                                   */
-/*===================================================================*/
+/* Mapper 19: Namco 163 digital registers. No expansion-audio output.
+ * CIRAM is shared by pattern and name tables; no private 8 KiB CHR RAM. */
+static BYTE Map19_Chr[8];
+BYTE *Map19_Internal;
+static BYTE Map19_ChrControl, Map19_WriteProtect, Map19_Address;
+static BYTE Map19_AudioDivider, Map19_AudioChannel;
+static bool Map19_AudioDisabled;
+static unsigned Map19_RamBytes;
+static WORD Map19_Irq;
+static uint32_t Map19_LastCycle;
 
-#define MAP19_CHR_RAM_SIZE 0x2000
-BYTE *Map19_Chr_Ram;
-BYTE Map19_Regs[2];
+/* Advance the CPU-readable phase registers without generating samples.
+ * Only this mapper pays for it, at register access / scanline boundaries. */
+static void Map19_Phase(unsigned channel)
+{
+  BYTE *r = Map19_Internal + 0x40 + channel * 8;
+  const uint32_t frequency = r[0] | (uint32_t(r[2]) << 8) | (uint32_t(r[4] & 3) << 16);
+  const uint32_t phase = r[1] | (uint32_t(r[3]) << 8) | (uint32_t(r[5]) << 16);
+  const uint32_t length = (256u - (r[4] & 0xfc)) << 16;
+  uint32_t next = phase + frequency;
+  if (next >= length) next %= length;
+  r[1] = next; r[3] = next >> 8; r[5] = next >> 16;
+}
 
-BYTE Map19_IRQ_Enable;
-DWORD Map19_IRQ_Cnt;
+static void Map19_Sync()
+{
+  const uint32_t now = K6502_Now();
+  const uint32_t elapsed = now - Map19_LastCycle;
+  Map19_LastCycle = now;
+  const unsigned counter = Map19_Irq & 0x7fff;
+  if ((Map19_Irq & 0x8000) && counter < 0x7fff) {
+    if (elapsed >= 0x7fff - counter) { Map19_Irq = 0xffff; IRQ_REQ; }
+    else Map19_Irq += elapsed;
+  }
+  if (Map19_AudioDisabled || !elapsed) return;
+  uint32_t ticks = elapsed / 15;
+  unsigned remainder = elapsed % 15 + Map19_AudioDivider;
+  ticks += remainder / 15;
+  Map19_AudioDivider = remainder % 15;
+  if (!ticks) return;
+  const unsigned channels = ((Map19_Internal[0x7f] >> 4) & 7) + 1;
+  // Usually at most eight updates per scanline. Using the native 32-bit
+  // phase arithmetic avoids a 64-bit divide and extra batch state.
+  while (ticks--) {
+    Map19_Phase(Map19_AudioChannel);
+    Map19_AudioChannel = Map19_AudioChannel <= 8 - channels ? 7 : Map19_AudioChannel - 1;
+  }
+}
 
-/* The address of 1Kbytes unit of the Map19 Chr RAM */
-#define Map19_VROMPAGE(a) &Map19_Chr_Ram[(a)*0x400]
+static void Map19_SetChr(unsigned slot)
+{
+  const BYTE bank = Map19_Chr[slot];
+  PPUBANK[slot] = bank >= 0xe0 && !(Map19_ChrControl & (slot < 4 ? 0x40 : 0x80))
+    ? VRAMPAGE(bank & 1) : VROMPAGE(bank % (NesHeader.byVRomSize * 8));
+}
 
-/*-------------------------------------------------------------------*/
-/*  Initialize Mapper 19                                             */
-/*-------------------------------------------------------------------*/
+static BYTE Map19_ReadSram(WORD address)
+{
+  return Map19_RamBytes ? SRAM[address & (Map19_RamBytes - 1)] : (BYTE)(address >> 8);
+}
+
+static void Map19_Sram(WORD address, BYTE data)
+{
+  const unsigned page = (address - 0x6000) >> 11;
+  if (Map19_RamBytes && (Map19_WriteProtect & 0x40) && !(Map19_WriteProtect & (1 << page))) {
+    SRAM[address & (Map19_RamBytes - 1)] = data;
+    SRAMwritten = true;
+  }
+}
+
 void Map19_Init()
 {
-  /* Initialize Mapper */
-  MapperInit = Map19_Init;
-
-  /* Write to Mapper */
-  MapperWrite = Map19_Write;
-
-  /* Write to SRAM */
-  MapperSram = Map0_Sram;
-
-  /* Write to APU */
-  MapperApu = Map19_Apu;
-
-  /* Read from APU */
-  MapperReadApu = Map19_ReadApu;
-
-  /* Callback at VSync */
-  MapperVSync = Map0_VSync;
-
-  /* Callback at HSync */
-  MapperHSync = Map19_HSync;
-
-  /* Callback at PPU */
-  MapperPPU = Map0_PPU;
-
-  /* Callback at Rendering Screen ( 1:BG, 0:Sprite ) */
-  MapperRenderScreen = Map0_RenderScreen;
-
-  /* Set SRAM Banks */
-  SRAMBANK = SRAM;
-
-  /* Allocate the CHR RAM once; InfoNES_Fin frees it. */
-  if (!Map19_Chr_Ram)
-  {
-    Map19_Chr_Ram = (BYTE *)infones::memory::allocate(MAP19_CHR_RAM_SIZE);
-    if (!Map19_Chr_Ram) return;
-    InfoNES_MemorySet(Map19_Chr_Ram, 0, MAP19_CHR_RAM_SIZE);
+  Map0_Init();
+  if (!Map19_Internal) {
+    Map19_Internal = (BYTE *)infones::memory::allocate(128);
+    if (!Map19_Internal) return;
   }
-
-  /* Set ROM Banks */
-  ROMBANK0 = ROMPAGE(0);
-  ROMBANK1 = ROMPAGE(1);
+  MapperInit = Map19_Init;
+  MapperWrite = Map19_Write;
+  MapperApu = Map19_Apu;
+  MapperReadApu = Map19_ReadApu;
+  MapperSram = Map19_Sram;
+  MapperReadSram = Map19_ReadSram;
+  MapperSramOwnsWrite = true;
+  MapperHSync = Map19_HSync;
   ROMBANK2 = ROMLASTPAGE(1);
   ROMBANK3 = ROMLASTPAGE(0);
-
-  /* Set PPU Banks */
-  if (NesHeader.byVRomSize > 0)
-  {
-    DWORD dwLastPage = (DWORD)NesHeader.byVRomSize << 3;
-    PPUBANK[0] = VROMPAGE(dwLastPage - 8);
-    PPUBANK[1] = VROMPAGE(dwLastPage - 7);
-    PPUBANK[2] = VROMPAGE(dwLastPage - 6);
-    PPUBANK[3] = VROMPAGE(dwLastPage - 5);
-    PPUBANK[4] = VROMPAGE(dwLastPage - 4);
-    PPUBANK[5] = VROMPAGE(dwLastPage - 3);
-    PPUBANK[6] = VROMPAGE(dwLastPage - 2);
-    PPUBANK[7] = VROMPAGE(dwLastPage - 1);
-    InfoNES_SetupChr();
+  Map19_ChrControl = Map19_WriteProtect = Map19_Address = 0;
+  Map19_Irq = 0;
+  Map19_LastCycle = 0; // K6502_Reset follows mapper initialization.
+  Map19_AudioDivider = 0;
+  Map19_AudioChannel = 7;
+  Map19_AudioDisabled = false;
+  InfoNES_MemorySet(Map19_Internal, 0, 128);
+  Map19_RamBytes = 8192;
+  if ((NesHeader.byInfo2 & 0x0c) == 8) {
+    const BYTE sizes = NesHeader.byReserve[2];
+    Map19_RamBytes = (sizes & 15 ? 64u << (sizes & 15) : 0) +
+                    (sizes >> 4 ? 64u << (sizes >> 4) : 0);
   }
-
-  /* Initialize State Register */
-  Map19_Regs[0] = 0x00;
-  Map19_Regs[1] = 0x00;
-
-  /* Set up wiring of the interrupt pin */
-  K6502_Set_Int_Wiring(1, 1);
+  for (unsigned n = 0; n < 8; ++n) Map19_Chr[n] = n;
 }
 
-/*-------------------------------------------------------------------*/
-/*  Mapper 19 Write Function                                         */
-/*-------------------------------------------------------------------*/
-void Map19_Write(WORD wAddr, BYTE byData)
+void Map19_Write(WORD address, BYTE data)
 {
-  /* Set PPU Banks */
-  switch (wAddr & 0xf800)
-  {
-  case 0x8000: /* $8000-87ff */
-    if (byData < 0xe0 || Map19_Regs[0] == 1)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[0] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[0] = Map19_VROMPAGE(0);
-    }
+  const WORD reg = address & 0xf800;
+  if (reg >= 0x8000 && reg <= 0xb800) {
+    const unsigned slot = (reg - 0x8000) / 0x800;
+    Map19_Chr[slot] = data;
+    Map19_SetChr(slot);
     InfoNES_SetupChr();
-    break;
-
-  case 0x8800: /* $8800-8fff */
-    if (byData < 0xe0 || Map19_Regs[0] == 1)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[1] = VROMPAGE(byData);
+  } else if (reg >= 0xc000 && reg <= 0xd800) {
+    PPUBANK[NAME_TABLE0 + (reg - 0xc000) / 0x800] = data >= 0xe0
+      ? VRAMPAGE(data & 1) : VROMPAGE(data % (NesHeader.byVRomSize * 8));
+  } else if (reg >= 0xe000 && reg <= 0xf000) {
+    ROMBANK[(reg - 0xe000) / 0x800] = ROMPAGE((data & 63) % (NesHeader.byRomSize * 2));
+    if (reg == 0xe000) {
+      Map19_Sync();
+      Map19_AudioDisabled = (data & 0x40) != 0;
+    } else if (reg == 0xe800) {
+      Map19_ChrControl = data;
+      for (unsigned n = 0; n < 8; ++n) Map19_SetChr(n);
+      InfoNES_SetupChr();
     }
-    else
-    {
-      PPUBANK[1] = Map19_VROMPAGE(1);
-    }
-    InfoNES_SetupChr();
-    break;
-
-  case 0x9000: /* $9000-97ff */
-    if (byData < 0xe0 || Map19_Regs[0] == 1)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[2] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[2] = Map19_VROMPAGE(2);
-    }
-    InfoNES_SetupChr();
-    break;
-
-  case 0x9800: /* $9800-9fff */
-    if (byData < 0xe0 || Map19_Regs[0] == 1)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[3] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[3] = Map19_VROMPAGE(3);
-    }
-    InfoNES_SetupChr();
-    break;
-
-  case 0xa000: /* $a000-a7ff */
-    if (byData < 0xe0 || Map19_Regs[1] == 1)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[4] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[4] = Map19_VROMPAGE(4);
-    }
-    InfoNES_SetupChr();
-    break;
-
-  case 0xa800: /* $a800-afff */
-    if (byData < 0xe0 || Map19_Regs[1] == 1)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[5] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[5] = Map19_VROMPAGE(5);
-    }
-    InfoNES_SetupChr();
-    break;
-
-  case 0xb000: /* $b000-b7ff */
-    if (byData < 0xe0 || Map19_Regs[1] == 1)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[6] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[6] = Map19_VROMPAGE(6);
-    }
-    InfoNES_SetupChr();
-    break;
-
-  case 0xb800: /* $b800-bfff */
-    if (byData < 0xe0 || Map19_Regs[1] == 1)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[7] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[7] = Map19_VROMPAGE(7);
-    }
-    InfoNES_SetupChr();
-    break;
-
-  case 0xc000: /* $c000-c7ff */
-    if (byData < 0xe0)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[NAME_TABLE0] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[NAME_TABLE0] = VRAMPAGE(byData & 0x01);
-    }
-    break;
-
-  case 0xc800: /* $c800-cfff */
-    if (byData < 0xe0)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[NAME_TABLE1] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[NAME_TABLE1] = VRAMPAGE(byData & 0x01);
-    }
-    break;
-
-  case 0xd000: /* $d000-d7ff */
-    if (byData < 0xe0)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[NAME_TABLE2] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[NAME_TABLE2] = VRAMPAGE(byData & 0x01);
-    }
-    break;
-
-  case 0xd800: /* $d800-dfff */
-    if (byData < 0xe0)
-    {
-      byData %= (NesHeader.byVRomSize << 3);
-      PPUBANK[NAME_TABLE3] = VROMPAGE(byData);
-    }
-    else
-    {
-      PPUBANK[NAME_TABLE3] = VRAMPAGE(byData & 0x01);
-    }
-    break;
-
-  case 0xe000: /* $e000-e7ff */
-    byData &= 0x3f;
-    byData %= (NesHeader.byRomSize << 1);
-    ROMBANK0 = ROMPAGE(byData);
-    break;
-
-  case 0xe800: /* $e800-efff */
-    Map19_Regs[0] = (byData & 0x40) >> 6;
-    Map19_Regs[1] = (byData & 0x80) >> 7;
-
-    byData &= 0x3f;
-    byData %= (NesHeader.byRomSize << 1);
-    ROMBANK1 = ROMPAGE(byData);
-    break;
-
-  case 0xf000: /* $f000-f7ff */
-    byData &= 0x3f;
-    byData %= (NesHeader.byRomSize << 1);
-    ROMBANK2 = ROMPAGE(byData);
-    break;
-
-  case 0xf800: /* $e800-efff */
-    if (wAddr == 0xf800)
-    {
-      // Extra Sound
-    }
-    break;
+  } else if (reg == 0xf800) {
+    Map19_Sync();
+    Map19_Address = data;
+    Map19_WriteProtect = data;
   }
 }
 
-/*-------------------------------------------------------------------*/
-/*  Mapper 19 Write to APU Function                                  */
-/*-------------------------------------------------------------------*/
-void Map19_Apu(WORD wAddr, BYTE byData)
+void Map19_Apu(WORD address, BYTE data)
 {
-  switch (wAddr & 0xf800)
-  {
-  case 0x4800:
-    if (wAddr == 0x4800)
-    {
-      // Extra Sound
-    }
-    break;
-
-  case 0x5000: /* $5000-57ff */
-    Map19_IRQ_Cnt = (Map19_IRQ_Cnt & 0xff00) | byData;
-    break;
-
-  case 0x5800: /* $5800-5fff */
-    Map19_IRQ_Cnt = (Map19_IRQ_Cnt & 0x00ff) | ((DWORD)(byData & 0x7f) << 8);
-    Map19_IRQ_Enable = (byData & 0x80) >> 7;
-    break;
+  const WORD reg = address & 0xf800;
+  if (reg < 0x4800 || reg > 0x5800) return;
+  Map19_Sync();
+  if (reg == 0x4800) {
+    Map19_Internal[Map19_Address & 0x7f] = data;
+    if (Map19_Address & 0x80) Map19_Address = 0x80 | ((Map19_Address + 1) & 0x7f);
+  } else {
+    if (reg == 0x5000) Map19_Irq = (Map19_Irq & 0xff00) | data;
+    else Map19_Irq = (Map19_Irq & 0xff) | (WORD(data) << 8);
+    IRQ_State = IRQ_Wiring;
   }
 }
 
-/*-------------------------------------------------------------------*/
-/*  Mapper 19 Read from APU Function                                 */
-/*-------------------------------------------------------------------*/
-BYTE Map19_ReadApu(WORD wAddr)
+BYTE Map19_ReadApu(WORD address)
 {
-  switch (wAddr & 0xf800)
-  {
-  case 0x4800:
-    if (wAddr == 0x4800)
-    {
-      // Extra Sound
-    }
-    return (BYTE)(wAddr >> 8);
-
-  case 0x5000: /* $5000-57ff */
-    return (BYTE)(Map19_IRQ_Cnt & 0x00ff);
-
-  case 0x5800: /* $5800-5fff */
-    return (BYTE)((Map19_IRQ_Cnt & 0x7f00) >> 8);
-
-  default:
-    return (BYTE)(wAddr >> 8);
+  const WORD reg = address & 0xf800;
+  if (reg < 0x4800 || reg > 0x5800) return (BYTE)(address >> 8);
+  Map19_Sync();
+  if (reg == 0x4800) {
+    const BYTE value = Map19_Internal[Map19_Address & 0x7f];
+    if (Map19_Address & 0x80) Map19_Address = 0x80 | ((Map19_Address + 1) & 0x7f);
+    return value;
   }
+  return reg == 0x5000 ? (BYTE)Map19_Irq : (BYTE)(Map19_Irq >> 8);
 }
 
-/*-------------------------------------------------------------------*/
-/*  Mapper 19 H-Sync Function                                        */
-/*-------------------------------------------------------------------*/
 void Map19_HSync()
 {
-  /*
- *  Callback at HSync
- *
- */
-  BYTE Map19_IRQ_Timing = 113;
-
-  if (Map19_IRQ_Enable)
-  {
-    if (Map19_IRQ_Cnt >= (DWORD)(0x7fff - Map19_IRQ_Timing))
-    {
-      Map19_IRQ_Cnt = 0x7fff;
-      IRQ_REQ;
-    }
-    else
-    {
-      Map19_IRQ_Cnt += Map19_IRQ_Timing;
-    }
-  }
+  // Counter values track actual CPU cycles; IRQ delivery remains scanline
+  // granularity between register accesses, like the other retained mappers.
+  Map19_Sync();
 }

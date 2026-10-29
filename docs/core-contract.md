@@ -42,7 +42,7 @@
 
 ## 卡带支持范围
 
-公共加载入口接纳 Mapper **0、1、2、3、4、7、8、11、15、18、22、23、24、25、32、33、34、41、48、66、69、70、71、72、75、76、78、79、80、86、87、88、89、92、97、112、113、133、140、177、184、206、207、210、226、240、241、242、243、244、268**，并施加以下约束：
+公共加载入口接纳 Mapper **0、1、2、3、4、7、8、11、15、18、19、22、23、24、25、32、33、34、41、48、66、69、70、71、72、75、76、78、79、80、86、87、88、89、92、97、112、113、133、140、177、184、206、207、210、226、240、241、242、243、244、268**，并施加以下约束：
 
 - PRG ROM 容量为二的幂，通常为 16–512 KiB；Mapper 15、34、177、226、241 上限为 1 MiB。存在 CHR ROM 时为 8–256 KiB，并受下列板型限制。
 - CHR ROM 容量为二的幂，Mapper 4 例外：允许以 8 KiB 为单位追加银行，按实际 1 KiB 银行数取模寻址。
@@ -54,12 +54,13 @@
 - Mapper 11（Color Dreams）：PRG、CHR ROM 均不超过 128 KiB，也接纳 8 KiB CHR RAM；旧编号覆盖多种板型，保留无冲突写入兼容行为。
 - Mapper 15、241：仅接纳 8 KiB CHR RAM。Mapper 15 保留旧改版 ROM 所需的 CHR 可写和通用 SRAM 行为，不模拟原多合一卡的 CHR 写保护。
 - Mapper 18（Jaleco SS8806）：PRG 不超过 256 KiB，必须有 CHR ROM；支持 RAM 使能/写保护及 4/8/12/16 位 IRQ 计数，按扫描线推进，不提供逐 CPU 周期精度。扩展语音芯片未模拟。
+- Mapper 19（Namco 163）：接纳 submapper 0/2/3/5，PRG 不超过 512 KiB，CHR ROM 不超过 256 KiB；图案表/名称表共享 2 KiB CIRAM，支持名称表 ROM 写保护、128 字节内部 RAM、自增寻址和分段 WRAM 写保护。IRQ 按实际 CPU 周期计数，在寄存器访问及扫描线边界更新，送达不是逐周期精确。保留 CPU 可读的音源相位状态，不合成扩展声音；不接纳四屏/混合 CHR RAM，不自动把旧 19 文件头识别成 Namco 175/340。
 - Mapper 33、48、66 与 69（FME-7 / Sunsoft 5B）：必须有 CHR ROM。Mapper 33 按 TC0190 接线，无 IRQ；需要 TC0690 IRQ 的卡带应正确声明 Mapper 48。
 - Mapper 23（VRC2/VRC4）、24（VRC6）与 25（VRC4）：PRG 不超过 256 KiB，必须有 CHR ROM；23 额外支持 NES 2.0 submapper 2（VRC4e）、3（VRC2b），25 额外支持 submapper 2（VRC4d）。VRC IRQ 沿用扫描线级实现，不提供逐 CPU 周期精度。23.3 无 IRQ；无 PRG RAM 时提供一位锁存，开放总线以地址高字节近似。
 - Mapper 23.2 支持 WRAM 使能，容量不超过 4 KiB 时仅映射 `$6000–$6FFF`；未明确板型的 23.0 保留兼容 RAM 访问，不套用 VRC4 的使能规则。
 - Mapper 22（VRC2a）：PRG 不超过 256 KiB，CHR ROM 不超过 128 KiB；无 IRQ。NES 2.0 无 WRAM 时模拟一位锁存，开放总线以地址高字节近似；旧 iNES 头保留 8 KiB WRAM 兼容行为。
 - Mapper 80/207（Taito X1-005）：PRG 不超过 256 KiB，CHR ROM 不超过 128 KiB；支持 128 字节内部 RAM 及访问保护。NES 2.0 RAM 声明仅接纳未声明或 128 字节；207 的镜像由 CHR 寄存器控制，须使用正确的 Mapper 编号。22/80/207 均不接纳四屏。
-- Mapper 210：仅接纳 NES 2.0 submapper 2（Namco 340），PRG 不超过 512 KiB，CHR ROM 不超过 256 KiB，无 PRG RAM、IRQ 或扩展音源；拒绝四屏、Namco 175 及歧义旧头。
+- Mapper 210：接纳 NES 2.0 submapper 1（Namco 175）和 2（Namco 340），PRG 不超过 512 KiB，CHR ROM 不超过 256 KiB。175 使用文件头镜像及最多 8 KiB WRAM，支持 RAM 镜像与写保护；340 使用寄存器控制镜像，无 PRG RAM。两者均无 IRQ 或扩展音源，拒绝四屏及歧义旧头。
 - Mapper 32（Irem G-101）：仅 submapper 0，PRG 不超过 256 KiB，CHR ROM 不超过 256 KiB；支持即时 PRG 窗口交换和横/纵镜像，不接纳四屏与固定单屏变种。
 - Mapper 34：旧头按 CHR 类型区分 BNROM（CHR RAM）与 NINA-001（CHR ROM）；NES 2.0 支持 submapper 1（NINA-001）、2（BNROM）。BNROM PRG 上限 1 MiB，并模拟总线冲突；NINA-001 PRG/CHR ROM 均不超过 64 KiB，寄存器位于 `$7FFD–$7FFF`，写入同时保存到 SRAM。两者不接纳四屏。
 - Mapper 140（JF-11/14）：PRG、CHR ROM 均不超过 128 KiB；寄存器位于 `$6000–$7FFF`，不写入 SRAM。

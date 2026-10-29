@@ -501,7 +501,7 @@ void InfoNES_Fin()
   if (Map13_Chr_Ram) { infones::port::release(Map13_Chr_Ram); Map13_Chr_Ram = nullptr; }
   if (Map96_Chr_Ram) { infones::port::release(Map96_Chr_Ram); Map96_Chr_Ram = nullptr; }
   if (Map111_Chr_Ram) { infones::port::release(Map111_Chr_Ram); Map111_Chr_Ram = nullptr; }
-  if (Map19_Chr_Ram) { infones::port::release(Map19_Chr_Ram); Map19_Chr_Ram = nullptr; }
+  if (Map19_Internal) { infones::port::release(Map19_Internal); Map19_Internal = nullptr; }
   if (Map185_Dummy_Chr_Rom) { infones::port::release(Map185_Dummy_Chr_Rom); Map185_Dummy_Chr_Rom = nullptr; }
   if (Map188_Dummy) { infones::port::release(Map188_Dummy); Map188_Dummy = nullptr; }
   if (Map16_Eeprom) { infones::port::release(Map16_Eeprom); Map16_Eeprom = nullptr; }

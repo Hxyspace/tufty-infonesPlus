@@ -95,6 +95,9 @@ static inline BYTE __not_in_flash_func(K6502_Read)(WORD wAddr)
       byRet = PPU_R7;
 
       // Read PPU Memory
+      // $3000-$3EFF follows the current name-table banks, including ROM
+      // banks and CIRAM shared with pattern tables.
+      if (addr >= 0x3000 && addr < 0x3f00) addr -= 0x1000;
       PPU_R7 = PPUBANK[addr >> 10][addr & 0x3ff];
 
       return byRet;
@@ -360,16 +363,17 @@ static inline void __not_in_flash_func(K6502_Write)(WORD wAddr, BYTE byData)
       }
       else if (addr < 0x3f00) /* 0x2000 - 0x3eff */
       {
-        // Name Table and mirror. $3000-$3EFF mirrors $2000-$2EFF, and slots
-        // 12-15 are always the identity mapping into PPURAM, so the alias is
-        // kept coherent with a second store rather than a test on the read
-        // side. $2F00-$2FFF is the one range whose alias ($3F00-$3FFF) is
-        // overridden by palette RAM on hardware: copying it would overwrite
-        // the palette read-back bytes at PPURAM[0x3F00..0x3F1F]. Four-screen
-        // carts write the whole of $2C00-$2FFF, so this matters there.
-        PPUBANK[addr >> 10][addr & 0x3ff] = byData;
-        if ((addr & 0x3f00) != 0x2f00)
-          PPUBANK[(addr ^ 0x1000) >> 10][addr & 0x3ff] = byData;
+        // Resolve the name-table mirror before checking the bank's write
+        // permission. Retain the raw PPURAM mirror for existing core users,
+        // but never copy $2F00 to $3F00: that range holds palette read-back.
+        addr = 0x2000 | (addr & 0x0fff);
+        BYTE *bank = PPUBANK[addr >> 10];
+        // Namco 163/Sunsoft 4 can map CHR ROM as a name table.
+        if (bank < VROM || bank >= VROMLimit) {
+          bank[addr & 0x3ff] = byData;
+          if ((addr & 0x3f00) != 0x2f00)
+            PPUBANK[(addr ^ 0x1000) >> 10][addr & 0x3ff] = byData;
+        }
       }
       else if (!(addr & 0xf)) /* 0x3f00 or 0x3f10 */
       {
