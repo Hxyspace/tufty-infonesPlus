@@ -89,17 +89,25 @@ NES 2.0 支持标准 NES、NTSC/PAL/Dendy 时序及经过验证的 submapper；�
 将电脑上的游戏放到仓库根目录 `roms/`，执行：
 
 ```bash
-python3 tools/deps.py --profile host
 python3 tools/prepare_roms.py
 python3 tools/prepare_roms.py --fix
 python3 tools/prepare_roms.py --fix --trim-padding
 ```
 
-默认只检查。`--fix` 清理明确的 DiskDude! 污染签名，并按已知校验值修正头部，修改前将完整原文件备份到 `build/rom-backups/`；用 `--backup-dir` 可更换备份位置。`--trim-padding` 额外清理声明 ROM 数据之外的 ASCII 空白尾部。处理完成后，将游戏手动复制到设备。
+默认只检查，支持 `.nes` 和 `.NES`。`--fix` 应用修复，修改前将完整原文件备份到 `build/rom-backups/`；用 `--backup-dir` 可更换备份位置。`--trim-padding` 额外清理声明 ROM 数据之外的 ASCII 空白尾部。处理完成后，将游戏手动复制到设备。
 
-DiskDude! 检测仅匹配文件头偏移7–15的完整 `DiskDude!` 或已部分清理的 `@iskDude!`，不搜索游戏正文。识别后清零这9字节，保留偏移0–6、trainer和全部游戏数据，再执行CRC修正规则和检查。该污染覆盖的Mapper高位无法仅从签名恢复，无对应CRC规则时按0处理并明确提示；镜像、电池等byte6标志不会凭空推断，必要时需补充已知规则。截断或修复后仍不支持的ROM保持原文件不变。
+默认读取 `build/rom-database/MesenNesDB.txt`，也可用 `--database` 指定其他路径。文件不存在时先尝试从 Mesen 下载，校验格式后缓存；下载失败则提示并回退到内置 CRC 规则，已有缓存不重复下载。数据库不随固件打包。按声明的 PRG+CHR 内容 CRC32 匹配，并核对两部分尺寸，排除文件头、trainer 和尾部数据。匹配且信息完整时，生成明确的 NES 2.0 头，修正 Mapper/子 Mapper、镜像、RAM、电池及区域等声明；游戏正文、trainer 和未知尾部保持不变。数据库不匹配时沿用原有检查；`--no-database` 可停用数据库及下载。
 
-检查项包括格式、文件长度、mapper、大小限制和尾部数据。除上述明确签名外，未知脏头不自动清理；正常NES 2.0扩展字段保留。修正规则位于 `tools/rom_fixes.json`，可用 `--rules` 指定自定义规则。规则只能处理已知文件问题，不能保证所有游戏兼容。
+指定其他游戏目录或数据库时，预览与修复使用相同参数，例如：
+
+```bash
+python3 tools/prepare_roms.py /path/to/roms --database /path/to/MesenNesDB.txt
+python3 tools/prepare_roms.py /path/to/roms --database /path/to/MesenNesDB.txt --fix
+```
+
+DiskDude! 检测仅匹配文件头偏移7–15的完整 `DiskDude!` 或已部分清理的 `@iskDude!`，不搜索游戏正文。清理污染本身只清零这9字节，后续可依据数据库或CRC规则恢复板型声明。没有匹配依据时，被覆盖的Mapper高位按0处理并明确提示，不凭空推断；trainer和全部游戏数据保留。截断或修复后预检不通过的ROM保持原文件不变。
+
+检查项包括格式、文件长度、Mapper、大小限制和尾部数据。小型修正规则仍位于 `tools/rom_fixes.json`，可用 `--rules` 指定。数据库尺寸不符、信息不足、特殊硬件无法表达、规则冲突或修复后预检不通过时，保留原文件并说明原因，不按文件名猜测。此工具是格式预检，设备还会检查具体板型与容量；正确的文件头不保证游戏完全兼容。
 
 ## 游戏索引、封面和背景
 

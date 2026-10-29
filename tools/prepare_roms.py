@@ -1,19 +1,73 @@
 #!/usr/bin/env python3
-"""Inspect ROMs; repair DiskDude! signatures and checksum-matched iNES headers."""
+"""Inspect ROMs; repair DiskDude! and checksum-matched headers using a local Mesen database."""
 import argparse
+import csv
 from dataclasses import dataclass, field
 import hashlib
+from http.client import HTTPException
 import json
 import os
 from pathlib import Path
 import re
 import stat
 import tempfile
+from urllib.request import urlopen
 import zlib
 
 PROJECT = Path(__file__).resolve().parents[1]
 MIRRORING = {"horizontal": 0, "vertical": 1, "four-screen": 8}
 MAX_ROM = 4 * 1024 * 1024
+DEFAULT_DATABASE = PROJECT / "build/rom-database/MesenNesDB.txt"
+DATABASE_URL = "https://raw.githubusercontent.com/SourMesen/Mesen2/master/UI/Dependencies/MesenNesDB.txt"
+
+
+def load_database(path):
+    """Read Mesen's 18-column database. Never choose between duplicate CRCs."""
+    entries = {}
+    with Path(path).open(encoding="utf-8-sig", newline="") as stream:
+        for line, row in enumerate(csv.reader(stream), 1):
+            if not row or not row[0].strip() or row[0].lstrip().startswith("#"):
+                continue
+            row = [value.strip() for value in row]
+            if len(row) != 18 or not re.fullmatch(r"[0-9a-fA-F]{8}", row[0]):
+                raise ValueError(f"Invalid Mesen database row {line}")
+            crc = row[0].lower()
+            if crc in entries:
+                raise ValueError(f"Duplicate database CRC32 {crc} at row {line}")
+            entry = dict(crc32=crc, system=row[1], board=row[2], mirroring=row[12],
+                         bus_conflicts=row[14], vs_type=row[16], ppu=row[17])
+            for index, name in ((5, "mapper"), (6, "prg_kib"), (7, "chr_kib"),
+                                (8, "chr_ram_kib"), (9, "work_ram_kib"), (10, "save_ram_kib"),
+                                (11, "battery"), (13, "controller"), (15, "submapper")):
+                value = row[index]
+                if value and not re.fullmatch(r"[0-9]+", value):
+                    raise ValueError(f"Invalid {name} at database row {line}")
+                entry[name] = int(value) if value else None
+            entries[crc] = entry
+    if not entries:
+        raise ValueError("Mesen database has no entries")
+    return entries
+
+
+def download_database(path):
+    """Validate a bounded download before atomically publishing the cache."""
+    with urlopen(DATABASE_URL, timeout=10) as response:
+        data = response.read(4 * 1024 * 1024 + 1)
+    if len(data) > 4 * 1024 * 1024:
+        raise ValueError("database download exceeds 4 MiB")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".mesen-db-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as out:
+            out.write(data)
+            out.flush()
+            os.fsync(out.fileno())
+        entries = load_database(temporary)
+        os.replace(temporary, path)
+        return entries
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def load_rules(path):
@@ -49,7 +103,116 @@ class Review:
     error: bool = False
 
 
-def review(data, rules, mappers, trim_padding=False):
+def check_rom_geometry(mapper, prg, chr_size):
+    """Common limits only; firmware still applies its full board validator."""
+    prg_limit = (1024 if mapper in (15, 34, 177, 226, 241) else 512) * 1024
+    if (not prg or prg & (prg - 1) or prg > prg_limit or chr_size > 256 * 1024
+            or (chr_size and chr_size & (chr_size - 1) and not (mapper == 4 and chr_size % 8192 == 0))):
+        raise ValueError("ROM geometry exceeds firmware preflight limits")
+    if mapper == 0 and (prg > 32768 or chr_size > 8192):
+        raise ValueError("NROM geometry is unsupported by firmware")
+    if mapper == 268 and not chr_size:
+        raise ValueError("firmware mapper 268 admission requires CHR ROM")
+
+
+def database_header(data, entry):
+    """Encode only explicit, representable standard NES board facts as NES 2.0."""
+    timing = {"NesNtsc": 0, "Famicom": 0, "NesPal": 1, "Dendy": 3}
+    if entry["system"] not in timing:
+        raise ValueError("database system is not standard NES")
+    mapper, sub = entry["mapper"], entry["submapper"]
+    if not 0 <= mapper <= 4095 or sub is None or not 0 <= sub <= 15:
+        raise ValueError("database mapper/submapper is missing or unrepresentable")
+    if entry["mirroring"] not in ("h", "v", "4"):
+        raise ValueError("database mirroring is missing or needs board-specific wiring")
+    if entry["controller"] not in (0, 1) or entry["vs_type"] not in ("", "0") or entry["ppu"] not in ("", "0"):
+        raise ValueError("database controller/console hardware is unsupported or unspecified")
+    if entry["bus_conflicts"] not in ("",):
+        # This separate Mesen setting cannot be encoded generically in NES 2.0.
+        raise ValueError("database has a separate bus-conflict override")
+
+    def ram_code(key):
+        value = entry[key]
+        if value is None:
+            raise ValueError("database RAM layout is incomplete")
+        size = value * 1024
+        if not size:
+            return 0
+        if size & (size - 1) or not 128 <= size <= 64 << 15:
+            raise ValueError("database RAM size cannot be encoded in NES 2.0")
+        return size.bit_length() - 7
+
+    work, save, chr_ram = (ram_code(key) for key in ("work_ram_kib", "save_ram_kib", "chr_ram_kib"))
+    if entry["battery"] not in (0, 1) or bool(entry["battery"]) != bool(save):
+        raise ValueError("database battery layout needs board-internal RAM handling")
+    header = bytearray(data[:16])
+    header[6] = ((mapper & 15) << 4) | (header[6] & 4) | (entry["battery"] << 1) | {"h": 0, "v": 1, "4": 8}[entry["mirroring"]]
+    header[7] = (mapper & 0xf0) | 8
+    header[8] = (sub << 4) | (mapper >> 8)
+    header[9:16] = bytes((0, work | (save << 4), chr_ram, timing[entry["system"]], 0, 0, entry["controller"]))
+    return bytes(header)
+
+
+def review(data, rules, mappers, trim_padding=False, database=None):
+    if database is None or len(data) < 16 or data[:4] != b"NES\x1a":
+        return _review_header(data, rules, mappers, trim_padding)
+    clean = data[:7] + bytes(9) + data[16:] if data[7:16] in (b"DiskDude!", b"@iskDude!") else data
+    nes2 = clean[7] & 12 == 8
+    # Do not use a guessed payload boundary for a database lookup. Extended
+    # sizes, nonstandard consoles and extra hardware need separate support.
+    if clean[7] & 12 not in (0, 8) or clean[7] & 3 or (nes2 and (clean[9] or clean[13] or clean[14] or clean[15] > 1)):
+        return _review_header(data, rules, mappers, trim_padding)
+    prg, chr_size = clean[4] * 16384, clean[5] * 8192
+    start = 16 + (512 if clean[6] & 4 else 0)
+    end = start + prg + chr_size
+    if not prg or len(clean) < end:
+        return _review_header(data, rules, mappers, trim_padding)
+    payload = clean[start:end]
+    crc = f"{zlib.crc32(payload):08x}"
+    entry = database.get(crc)
+    if entry is None:
+        result = _review_header(data, rules, mappers, trim_padding)
+        result.notes.insert(0, f"Database: no match for PRG+CHR CRC32={crc}")
+        return result
+    notes = [f"Database: CRC32={crc}, board={entry['board'] or '(unspecified)'}, mapper={entry['mapper']}.{entry['submapper']}"]
+    try:
+        if any(entry[key] is None for key in ("mapper", "prg_kib", "chr_kib")):
+            raise ValueError("database mapper/ROM sizes are incomplete")
+        if entry["prg_kib"] * 1024 != prg or entry["chr_kib"] * 1024 != chr_size:
+            raise ValueError("CRC matched but database PRG/CHR sizes disagree")
+        header = database_header(clean, entry)
+        rule = rules.get(crc)
+        if rule:
+            digest = hashlib.sha256(payload).hexdigest()
+            mirror = {"h": "horizontal", "v": "vertical", "4": "four-screen"}[entry["mirroring"]]
+            if (rule.get("prg_bytes", prg) != prg or rule.get("chr_bytes", chr_size) != chr_size
+                    or rule.get("sha256", digest) != digest):
+                raise ValueError("CRC rule size/SHA256 disagrees with ROM")
+            if rule.get("mapper", entry["mapper"]) != entry["mapper"] or rule.get("mirroring", mirror) != mirror:
+                raise ValueError("database and CRC rule conflict; choose the intended rules explicitly")
+    except ValueError as exc:
+        return Review(data, notes + [f"ERROR: {exc}; unchanged"], True)
+    candidate = header + data[16:]
+    result = _review_header(candidate, {}, mappers, trim_padding)
+    result.notes = [note for note in result.notes if note != "No known correction; header left unchanged"]
+    if header != data[:16]:
+        old_mapper = (clean[6] >> 4) | (clean[7] & 0xf0) | ((clean[8] & 15) << 8 if nes2 else 0)
+        old_sub = clean[8] >> 4 if nes2 else 0
+        notes.append(f"FIX: database header {old_mapper}.{old_sub} -> {entry['mapper']}.{entry['submapper']} (NES 2.0)")
+        notes.append(f"Header: {data[:16].hex(' ')} -> {header.hex(' ')}")
+        notes.append("Database fields: mapper, submapper, mirroring, battery, RAM, timing and standard controller")
+    else:
+        notes.append("Database header already matches")
+    if clean != data:
+        notes.append("FIX: remove DiskDude! signature; database restores board fields")
+    if result.error:
+        result.fixed = data
+        notes.append("ERROR: corrected header fails firmware preflight; original preserved")
+    result.notes = notes + result.notes
+    return result
+
+
+def _review_header(data, rules, mappers, trim_padding=False):
     result = Review(data)
     if len(data) < 16 or data[:4] != b"NES\x1a":
         return Review(data, ["ERROR: missing/truncated iNES header"], True)
@@ -127,6 +290,11 @@ def review(data, rules, mappers, trim_padding=False):
                 result.notes.append(f"FIX: mirroring {mirror} -> {rule['mirroring']}")
     else:
         result.notes.append("No checksum-matched board correction" if diskdude else "No known correction; header left unchanged")
+    try:
+        check_rom_geometry(mapper, prg, chr_size)
+    except ValueError as exc:
+        result.notes.append(f"ERROR: {exc}")
+        result.error = True
     if mapper not in mappers:
         result.notes.append(f"ERROR: mapper {mapper} is not admitted by the firmware loader")
         result.error = True
@@ -143,7 +311,7 @@ def review(data, rules, mappers, trim_padding=False):
     if len(fixed) > MAX_ROM:
         result.notes.append("ERROR: ROM exceeds firmware's 4 MiB file limit")
         result.error = True
-    result.fixed = original if diskdude and result.error else bytes(fixed)
+    result.fixed = original if result.error else bytes(fixed)
     result.notes.append("Preflight only: firmware applies additional board geometry/RAM checks")
     return result
 
@@ -185,14 +353,31 @@ def main(argv=None):
     parser.add_argument("--fix", action="store_true", help="apply fixes after saving original backups (default: preview)")
     parser.add_argument("--trim-padding", action="store_true", help="also remove trailing ASCII whitespace beyond declared PRG/CHR")
     parser.add_argument("--rules", type=Path, default=Path(__file__).with_name("rom_fixes.json"))
+    database_args = parser.add_mutually_exclusive_group()
+    database_args.add_argument("--database", type=Path, help="MesenNesDB.txt cache (default: build/rom-database/MesenNesDB.txt; downloaded if missing)")
+    database_args.add_argument("--no-database", action="store_true", help="use only the small CRC rules and DiskDude! cleanup")
     parser.add_argument("--backup-dir", type=Path, default=PROJECT / "build/rom-backups")
     args = parser.parse_args(argv)
     if not args.directory.is_dir():
         parser.error("ROM directory does not exist: " + str(args.directory))
     try:
         rules, mappers = load_rules(args.rules), supported_mappers()
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+        database_path = None if args.no_database else args.database or DEFAULT_DATABASE
+        database = None
+        if database_path:
+            if database_path.exists():
+                database = load_database(database_path)
+            else:
+                print("Database missing; downloading from Mesen...")
+                try:
+                    database = download_database(database_path)
+                except (OSError, ValueError, HTTPException) as exc:
+                    print(f"WARN: database download failed: {exc}; using CRC rules only")
+                    database_path = None
+    except (OSError, ValueError, KeyError, TypeError, UnicodeError) as exc:
         parser.error(str(exc))
+    if database_path:
+        print(f"Database: {database_path} ({len(database)} entries)")
     files = sorted(p for p in args.directory.rglob("*") if p.is_file() and p.suffix.lower() == ".nes")
     changed = errors = 0
     for path in files:
@@ -202,7 +387,7 @@ def main(argv=None):
             if path.is_symlink() or any(p.is_symlink() for p in path.parents):
                 raise ValueError("symlink path skipped")
             original = path.read_bytes()
-            result = review(original, rules, mappers, args.trim_padding)
+            result = review(original, rules, mappers, args.trim_padding, database)
             for note in result.notes:
                 print("  " + note)
             if relative.parent != Path("."):

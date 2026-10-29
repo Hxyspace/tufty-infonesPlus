@@ -1,15 +1,18 @@
 import contextlib
+import csv
 import hashlib
+from http.client import HTTPException
 import io
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-from prepare_roms import load_rules, main, replace_with_backup, review, supported_mappers
+from prepare_roms import DATABASE_URL, load_database, load_rules, main, replace_with_backup, review, supported_mappers
 
 
 class RomTests(unittest.TestCase):
@@ -96,7 +99,7 @@ class RomTests(unittest.TestCase):
             rules = root / "rules.json"
             rules.write_text('{"rules": []}')
             backups = root / "backups"
-            args = [str(roms), "--rules", str(rules), "--backup-dir", str(backups)]
+            args = [str(roms), "--no-database", "--rules", str(rules), "--backup-dir", str(backups)]
             self.assertEqual(main(args), 0)
             self.assertEqual(path.read_bytes(), dirty)
             self.assertFalse(backups.exists())
@@ -249,7 +252,7 @@ class RomTests(unittest.TestCase):
             path.write_bytes(self.data)
             rules = root / "rules.json"
             rules.write_text(json.dumps({"rules": [self.rule]}))
-            args = [str(roms), "--rules", str(rules), "--backup-dir", str(root / "backups")]
+            args = [str(roms), "--no-database", "--rules", str(rules), "--backup-dir", str(root / "backups")]
             self.assertEqual(main(args), 0)
             self.assertEqual(path.read_bytes(), self.data)
             self.assertFalse((root / "backups").exists())
@@ -267,6 +270,196 @@ class RomTests(unittest.TestCase):
         rules = load_rules(Path(__file__).resolve().parents[2] / "tools/rom_fixes.json")
         self.assertEqual(rules["9ea1dc76"]["mirroring"], "horizontal")
         self.assertEqual(rules["9ea1dc76"]["mapper"], 2)
+
+    def database_row(self, **changes):
+        row = [self.crc, "Famicom", "NAMCOT-175", "", "175", "210", "32", "8",
+               "0", "0", "2", "1", "v", "1", "", "1", "", ""]
+        for index, value in changes.items():
+            row[int(index)] = value
+        return row
+
+    def database(self, **changes):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "MesenNesDB.txt"
+            with path.open("w", encoding="utf-8-sig", newline="") as out:
+                out.write("# Fields: Mesen database\n\n")
+                csv.writer(out).writerow(self.database_row(**changes))
+            return load_database(path)
+
+    def test_database_repairs_board_before_firmware_preflight(self):
+        db = self.database()
+        for original in (self.data, self.data[:7] + b"DiskDude!" + self.data[16:],
+                         self.data[:7] + b"@iskDude!" + self.data[16:]):
+            original += b"unrecognized tail\x00\xff"
+            result = review(original, {}, {210}, database=db)
+            self.assertFalse(result.error, result.notes)
+            self.assertEqual(result.fixed[:6], original[:6])
+            self.assertEqual(result.fixed[6:16], bytes((0x27, 0xd8, 0x10, 0, 0x50, 0, 0, 0, 0, 1)))
+            self.assertEqual(result.fixed[16:], original[16:])
+            self.assertEqual(review(result.fixed, {}, {210}, database=db).fixed, result.fixed)
+        original = bytearray(self.data)
+        original[7] |= 8
+        original[8] = 0xf1  # Wrong extended mapper/submapper must not block correction.
+        result = review(bytes(original), {}, {210}, database=db)
+        self.assertFalse(result.error, result.notes)
+        self.assertEqual(result.fixed[6:9], bytes((0x27, 0xd8, 0x10)))
+
+    def test_database_region_mirroring_ram_and_extended_mapper(self):
+        for system, timing in (("NesNtsc", 0), ("Famicom", 0), ("NesPal", 1), ("Dendy", 3)):
+            for mirror, bits in (("h", 0), ("v", 1), ("4", 8)):
+                db = self.database(**{"1": system, "5": "268", "10": "0", "11": "0",
+                                      "9": "2", "12": mirror, "15": "0"})
+                result = review(self.data, {}, {268}, database=db)
+                self.assertFalse(result.error, result.notes)
+                self.assertEqual(result.fixed[6:9], bytes((0xc4 | bits, 8, 1)))
+                self.assertEqual(result.fixed[10:13], bytes((5, 0, timing)))
+                self.assertEqual(result.fixed[16:], self.data[16:])
+
+    def test_database_never_guesses_incomplete_or_conflicting_entries(self):
+        variants = ({"6": "16", "7": "24"}, {"7": ""}, {"1": "VsSystem"},
+                    {"1": "VT03"}, {"8": ""}, {"9": "9"}, {"10": "0"},
+                    {"12": "1"}, {"12": ""}, {"13": "2"}, {"13": ""},
+                    {"14": "N"}, {"15": ""}, {"15": "16"}, {"5": "65000"},
+                    {"16": "1"}, {"17": "2"}, {"9": "16"})
+        dirty = self.data[:7] + b"DiskDude!" + self.data[16:]
+        for changes in variants:
+            with self.subTest(changes=changes):
+                for data in (self.data, dirty):
+                    result = review(data, {}, {210}, database=self.database(**changes))
+                    self.assertTrue(result.error, result.notes)
+                    self.assertEqual(result.fixed, data)
+        db = self.database()
+        self.assertEqual(review(self.data, self.rules, {210}, database=db).fixed, self.data)
+        self.assertTrue(review(self.data, self.rules, {210}, database=db).error)
+        self.rule.update(mapper=210, mirroring="vertical")
+        self.assertFalse(review(self.data, self.rules, {210}, database=db).error)
+        self.rule["sha256"] = "0" * 64
+        self.assertTrue(review(self.data, self.rules, {210}, database=db).error)
+        # A database match does not grant firmware support.
+        result = review(self.data, {}, {0}, database=db)
+        self.assertTrue(result.error)
+        self.assertEqual(result.fixed, self.data)
+
+    def test_database_unknown_crc_and_unsafe_payload_boundaries(self):
+        db = self.database(**{"0": "00000000"})
+        result = review(self.data, {}, {67}, database=db)
+        self.assertFalse(result.error)
+        self.assertEqual(result.fixed, self.data)
+        self.assertTrue(any("no match" in note for note in result.notes))
+        self.assertNotEqual(review(self.data, self.rules, {2}, database=db).fixed, self.data)
+        for size in (0, 10, len(self.data)-1):
+            result = review(self.data[:size], {}, {210}, database=self.database())
+            self.assertTrue(result.error)
+            self.assertEqual(result.fixed, self.data[:size])
+        for offset, value in ((7, 1), (9, 1), (13, 1), (14, 1), (15, 2)):
+            data = bytearray(self.data);data[7] |= 8;data[offset] = value
+            result = review(bytes(data), {}, {210}, database=self.database())
+            self.assertTrue(result.error)
+            self.assertEqual(result.fixed, data)
+
+    def test_database_invalid_file_and_duplicate_crc_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "db.txt"
+            row = self.database_row()
+            for rows in ([], [row, row], [row[:-1]], [self.database_row(**{"0": "123"})],
+                         [self.database_row(**{"9": "-1"})]):
+                with path.open("w", newline="") as out:
+                    csv.writer(out).writerows(rows)
+                with self.assertRaises(ValueError):
+                    load_database(path)
+
+    def test_database_does_not_apply_known_unsupported_geometry(self):
+        for mapper, prg_kib, chr_kib in ((0, 64, 8), (0, 32, 16), (268, 512, 0),
+                                          (210, 1024, 128), (210, 32, 512), (210, 48, 8)):
+            data = bytearray(self.data[:16]);data[4]=prg_kib//16;data[5]=chr_kib//8
+            data[6] &= ~4
+            payload = bytes((prg_kib+chr_kib)*1024)
+            crc = f"{zlib.crc32(payload):08x}"
+            db = self.database(**{"0": crc, "5": str(mapper), "6": str(prg_kib), "7": str(chr_kib), "15": "0"})
+            original=bytes(data)+payload
+            result=review(original, {}, {mapper}, database=db)
+            self.assertTrue(result.error, result.notes)
+            self.assertEqual(result.fixed, original)
+
+    def test_diskdude_without_database_does_not_create_invalid_nrom(self):
+        header = bytearray(b"NES\x1a" + bytes(12))
+        header[4], header[5] = 2, 4
+        header[7:16] = b"DiskDude!"
+        original = bytes(header) + bytes(32768 + 32768)
+        for db in (None, {}):
+            result = review(original, {}, supported_mappers(), database=db)
+            self.assertTrue(result.error)
+            self.assertEqual(result.fixed, original)
+            self.assertTrue(any("NROM geometry" in note for note in result.notes))
+
+    def test_database_cli_cache_preview_fix_backup_and_disable(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            root = Path(tmp);roms = root / "roms";roms.mkdir()
+            path = roms / "wrong.NES";path.write_bytes(self.data)
+            db = root / "db.txt"
+            with db.open("w", newline="") as out:
+                csv.writer(out).writerow(self.database_row())
+            rules = root / "rules.json";rules.write_text('{"rules": []}')
+            args = [str(roms), "--rules", str(rules), "--backup-dir", str(root / "backups")]
+            with patch("prepare_roms.DEFAULT_DATABASE", db):
+                self.assertEqual(main(args), 0)
+                self.assertEqual(path.read_bytes(), self.data)
+                self.assertFalse((root / "backups").exists())
+                self.assertEqual(main(args + ["--no-database"]), 1)  # Mapper 67 unsupported.
+                self.assertEqual(main(args + ["--fix", "--database", str(db)]), 0)
+                fixed = path.read_bytes()
+                self.assertEqual(fixed[16:], self.data[16:])
+                self.assertEqual(main(args + ["--fix"]), 0)
+                backups = list((root / "backups").rglob("*.bak"))
+                self.assertEqual(len(backups), 1)
+                self.assertEqual(backups[0].read_bytes(), self.data)
+                self.assertEqual(path.read_bytes(), fixed)
+                broken = root / "broken-db.txt";broken.write_text("not a database")
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    main(args + ["--fix", "--database", str(broken)])
+                self.assertEqual(path.read_bytes(), fixed)
+
+    def test_missing_database_downloads_once_then_uses_cache(self):
+        payload = (",".join(self.database_row()) + "\n").encode()
+        for explicit in (False, True):
+            with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+                root = Path(tmp);roms = root / "roms";roms.mkdir()
+                cache = root / "cache/MesenNesDB.txt"
+                args = [str(roms)] + (["--database", str(cache)] if explicit else [])
+                with patch("prepare_roms.DEFAULT_DATABASE", cache), patch("prepare_roms.urlopen", return_value=io.BytesIO(payload)) as fetch:
+                    self.assertEqual(main(args), 0)
+                    self.assertEqual(cache.read_bytes(), payload)
+                    self.assertEqual(main(args), 0)
+                    fetch.assert_called_once_with(DATABASE_URL, timeout=10)
+                    self.assertEqual(list(cache.parent.iterdir()), [cache])
+
+    def test_database_download_failure_falls_back_to_crc_rules(self):
+        failures = (OSError("offline"), HTTPException("truncated response"), b"<html>error</html>",
+                    b"x" * (4 * 1024 * 1024 + 1))
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+                root = Path(tmp);roms = root / "roms";roms.mkdir()
+                path = roms / "game.NES";path.write_bytes(self.data)
+                rules = root / "rules.json";rules.write_text(json.dumps({"rules": [self.rule]}))
+                cache = root / "cache/MesenNesDB.txt"
+                args = [str(roms), "--rules", str(rules)]
+                options = {"side_effect": failure} if isinstance(failure, Exception) else {"return_value": io.BytesIO(failure)}
+                with patch("prepare_roms.DEFAULT_DATABASE", cache), patch("prepare_roms.urlopen", **options):
+                    self.assertEqual(main(args), 0)  # CRC rule repairs mapper 67 to 2.
+                self.assertEqual(path.read_bytes(), self.data)  # Still preview only.
+                self.assertFalse(cache.exists())
+                self.assertFalse(list(root.rglob(".mesen-db-*")))
+
+    def test_database_disabled_or_existing_invalid_cache_never_downloads(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            root = Path(tmp);cache = root / "db.txt"
+            with patch("prepare_roms.DEFAULT_DATABASE", cache), patch("prepare_roms.urlopen") as fetch:
+                self.assertEqual(main([str(root), "--no-database"]), 0)
+                cache.write_text("invalid cached database")
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    main([str(root)])
+                self.assertEqual(cache.read_text(), "invalid cached database")
+                fetch.assert_not_called()
 
 
 if __name__ == "__main__":
