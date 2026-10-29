@@ -1,107 +1,33 @@
-/*===================================================================*/
-/*                                                                   */
-/*                       Mapper 32 (Irem G-101)                      */
-/*                                                                   */
-/*===================================================================*/
-
-BYTE Map32_Saved;
-
-/*-------------------------------------------------------------------*/
-/*  Initialize Mapper 32                                             */
-/*-------------------------------------------------------------------*/
+/* Mapper 32: Irem G-101, standard H/V board (submapper 0). */
+static BYTE Map32_Mode, Map32_Prg;
+static void Map32_SyncPrg()
+{
+  const unsigned slot = Map32_Mode & 2;
+  MapBankPrg(slot, Map32_Prg);
+  MapBankPrg(slot ^ 2, (NesHeader.byRomSize << 1) - 2);
+}
 void Map32_Init()
 {
-  /* Initialize Mapper */
+  Map0_Init();
   MapperInit = Map32_Init;
-
-  /* Write to Mapper */
   MapperWrite = Map32_Write;
-
-  /* Write to SRAM */
-  MapperSram = Map0_Sram;
-
-  /* Write to APU */
-  MapperApu = Map0_Apu;
-
-  /* Read from APU */
-  MapperReadApu = Map0_ReadApu;
-
-  /* Callback at VSync */
-  MapperVSync = Map0_VSync;
-
-  /* Callback at HSync */
-  MapperHSync = Map0_HSync;
-
-  /* Callback at PPU */
-  MapperPPU = Map0_PPU;
-
-  /* Callback at Rendering Screen ( 1:BG, 0:Sprite ) */
-  MapperRenderScreen = Map0_RenderScreen;
-
-  /* Initialize state flag */
-  Map32_Saved = 0x00;
-
-  /* Set SRAM Banks */
-  SRAMBANK = SRAM;
-
-  /* Set ROM Banks */
-  ROMBANK0 = ROMPAGE( 0 );
-  ROMBANK1 = ROMPAGE( 1 );
-  ROMBANK2 = ROMLASTPAGE( 1 );
-  ROMBANK3 = ROMLASTPAGE( 0 );
-
-  /* Set PPU Banks */
-  if ( NesHeader.byVRomSize > 0 )
-  {
-    for ( int nPage = 0; nPage < 8; ++nPage )
-      PPUBANK[ nPage ] = VROMPAGE( nPage );
-    InfoNES_SetupChr();
-  }
-
-  /* Set up wiring of the interrupt pin */
-  K6502_Set_Int_Wiring( 1, 1 );
+  Map32_Mode = Map32_Prg = 0;
+  Map32_SyncPrg();
+  ROMBANK3 = ROMLASTPAGE(0);
 }
-
-/*-------------------------------------------------------------------*/
-/*  Mapper 32 Write Function                                         */
-/*-------------------------------------------------------------------*/
-void Map32_Write( WORD wAddr, BYTE byData )
+void Map32_Write(WORD address, BYTE data)
 {
-  switch ( wAddr & 0xf000 )
-  {
+  switch (address & 0xf000) {
     case 0x8000:
-      /* Set ROM Banks */
-      byData %= ( NesHeader.byRomSize << 1 );
-
-      if ( Map32_Saved & 0x02 ) 
-      {
-        ROMBANK2 = ROMPAGE( byData );
-      } else {
-        ROMBANK0 = ROMPAGE( byData );
-      }
+      Map32_Prg = data & 0x1f;
+      Map32_SyncPrg();
       break;
-      
     case 0x9000:
-      Map32_Saved = byData;
-      
-      // Name Table Mirroring
-      InfoNES_Mirroring( byData & 0x01 );
+      Map32_Mode = data & 2;
+      Map32_SyncPrg();
+      InfoNES_Mirroring(data & 1 ? 0 : 1);
       break;
-
-    case 0xa000:
-      /* Set ROM Banks */
-      byData %= ( NesHeader.byRomSize << 1 );
-      ROMBANK1 = ROMPAGE( byData );
-      break;
-
-    case 0xb000:
-      /* Set PPU Banks */
-      byData %= ( NesHeader.byVRomSize << 3 );
-      PPUBANK[ wAddr & 0x0007 ] = VROMPAGE( byData );
-      InfoNES_SetupChr();
-      break;
-
-    default:
-      break;
+    case 0xa000: MapBankPrg(1, data & 0x1f); break;
+    case 0xb000: MapBankChr(address & 7, data); break;
   }
 }

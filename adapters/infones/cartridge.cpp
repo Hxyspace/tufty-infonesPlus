@@ -20,6 +20,7 @@ bool validate_board(const Cartridge &i,const char **error) {
   if(i.submapper && !(((i.mapper==2 || i.mapper==3 || i.mapper==7 || i.mapper==25) && i.submapper==2) ||
                      (i.mapper==23 && (i.submapper==2 || i.submapper==3)) ||
                      (i.mapper==206 && i.submapper==1) ||
+                     (i.mapper==34 && (i.submapper==1 || i.submapper==2)) ||
                      (i.mapper==78 && (i.submapper==1 || i.submapper==3))))
     return reject("Submapper needs board-specific validation");
   const auto power_of_two=[](std::size_t n){return n && !(n&(n-1));};
@@ -27,7 +28,7 @@ bool validate_board(const Cartridge &i,const char **error) {
   // images can append CHR banks without rounding the file up to a power of two.
   const bool mmc3_chr=i.mapper==4 && i.chr_size && i.chr_size%8192==0;
   if(!power_of_two(i.prg_size) || (i.chr_size && !power_of_two(i.chr_size) && !mmc3_chr) ||
-     i.prg_size>(i.mapper==15 || i.mapper==177 || i.mapper==241?1024u:512u)*1024 || i.chr_size>256*1024)
+     i.prg_size>(i.mapper==15 || i.mapper==34 || i.mapper==177 || i.mapper==226 || i.mapper==241?1024u:512u)*1024 || i.chr_size>256*1024)
     return reject("Mapper bank geometry needs explicit validation");
   // Initial public loader contract. Other implementations stay in nes_core
   // and must gain geometry/RAM/write-path tests before being admitted here.
@@ -63,6 +64,23 @@ bool validate_board(const Cartridge &i,const char **error) {
     case 23:case 24:case 25:
       if(i.prg_size>256*1024)return reject("VRC PRG exceeds 256 KiB bank addressing");
       chr_required=true;break;
+    case 32:
+      if(i.prg_size>256*1024 || (i.header[6]&8))
+        return reject("G-101 requires PRG <= 256 KiB and H/V mirroring");
+      chr_required=true;break;
+    case 34:
+      if((i.submapper==1 && !i.chr_size) || (i.submapper==2 && i.chr_size) ||
+         (i.chr_size && (i.prg_size>64*1024 || i.chr_size>64*1024)) || (i.header[6]&8))
+        return reject("Mapper 34 requires BNROM CHR RAM or NINA-001 PRG/CHR <= 64 KiB");
+      break;
+    case 140:
+      if(i.prg_size>128*1024 || i.chr_size>128*1024)
+        return reject("JF-11/14 bank addressing exceeded");
+      chr_required=true;break;
+    case 226:
+      if(i.chr_size || (i.header[6]&8))
+        return reject("Mapper 226 requires CHR RAM and programmable H/V mirroring");
+      break;
     case 33:case 48:case 66:case 69:case 268:chr_required=true;break;
     case 70:
       if(i.prg_size>128*1024 || i.chr_size>128*1024)

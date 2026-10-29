@@ -294,6 +294,9 @@ static void admitted_bank_bounds() {
     if(large && mapper==8)chr_banks=4;
     if(large && mapper==206)chr_banks=8;
     switch(mapper){
+      case 32:prg_banks=large?16:2;break;
+      case 34:case 226:prg_banks=large?64:2;chr_banks=0;break;
+      case 140:prg_banks=large?8:2;chr_banks=large?16:1;break;
       case 41:case 113:prg_banks=large?16:2;chr_banks=large?16:1;break;
       case 72:case 78:case 89:case 76:case 88:prg_banks=large?8:2;chr_banks=large?16:1;break;
       case 75:case 92:prg_banks=large?16:2;chr_banks=large?16:1;break;
@@ -1087,6 +1090,99 @@ static void discrete_board_registers() {
     finish();
   }
 }
-int main(){nrom();dendy_vblank_scroll();mapper48();clipping();cpu_operands();audio_backpressure();simple_mapper_boards();hengge177();discrete_board_registers();medium_mapper_boards();mapper_ram_permissions();sram_dispatch_lifecycle();
+static void bank_switch_boards() {
+  auto make=[](unsigned m,unsigned p,unsigned c,unsigned sub=0){
+    std::vector<BYTE> r(16+p*16384+c*8192,0xff);
+    std::fill_n(r.data(),16,0);std::memcpy(r.data(),"NES\x1a",4);
+    r[4]=p;r[5]=c;r[6]=(m&15)<<4;r[7]=m&0xf0;
+    if(sub){r[7]|=8;r[8]=sub<<4;r[10]=7;if(!c)r[11]=7;}
+    return r;
+  };
+  auto start=[](std::vector<BYTE>&r){assert(nes::infones_adapter::load(r.data(),r.size()));};
+  auto finish=[]{nes::infones_adapter::unload();assert(allocations==0);};
+  auto pb=[](unsigned slot,unsigned page){assert(ROMBANK[slot]==ROM+page*8192);};
+  auto cb=[](unsigned slot,unsigned page){assert(PPUBANK[slot]==VROM+page*1024);};
+  auto mirror=[](bool horizontal){
+    for(unsigned n=0;n<4;++n)
+      assert(PPUBANK[8+n]==PPURAM+(8+(horizontal?n/2:n%2))*1024);
+  };
+  auto cpu_write=[](WORD address,BYTE value){
+    const BYTE code[]={0xa9,value,0x8d,BYTE(address),BYTE(address>>8),0x4c,5,2};
+    std::copy(std::begin(code),std::end(code),RAM+0x200);
+    PC=0x200;SRAMwritten=false;K6502_Step(40);
+  };
+  {
+    auto r=make(32,16,32);start(r);
+    for(unsigned v=0;v<256;++v){
+      MapperWrite(0x8fff,v);MapperWrite(0xafff,v^7);
+      for(unsigned mode=0;mode<4;++mode){
+        MapperWrite(0x9fff,mode);const unsigned slot=mode&2;
+        pb(slot,v&31);pb(slot^2,30);pb(1,(v^7)&31);pb(3,31);mirror(mode&1);
+      }
+      for(unsigned slot=0;slot<8;++slot){MapperWrite(0xbff8+slot,v);cb(slot,v);}
+      MapperWrite(0xc000,0);pb(2,v&31); // ignored range
+    }
+    cpu_write(0x6000,0x56);assert(SRAM[0]==0x56 && SRAMwritten);
+    assert(InfoNES_Reset()==0);pb(0,0);pb(1,1);pb(2,30);pb(3,31);
+    assert(MapperHSync==Map0_HSync);finish();
+  }
+  // BNROM: coherent reset bank, ROM bus conflicts, no NINA registers.
+  for(unsigned sub:{0,2})for(unsigned size:{2,8,32,64}){
+    auto r=make(34,size,0,sub);start(r);pb(0,size*2-4);
+    PPURAM[17]=0x63;
+    for(unsigned v=0;v<256;++v){
+      MapperWrite(0x8000,v);
+      for(unsigned slot=0;slot<4;++slot)pb(slot,((v*4)%(size*2))+slot);
+    }
+    ROMBANK0[0x123]=0x01;MapperWrite(0x8123,0xff);
+    pb(0,4%(size*2));assert(PPURAM[17]==0x63);
+    auto bank=ROMBANK0;cpu_write(0x7ffe,0x35);
+    assert(ROMBANK0==bank && SRAM[0x1ffe]==0x35 && SRAMwritten);
+    assert(InfoNES_Reset()==0);pb(0,size*2-4);finish();
+  }
+  // NINA-001: low-address latches write through to RAM; ROM writes ignored.
+  for(unsigned sub:{0,1}){
+    auto r=make(34,4,8,sub);start(r);
+    for(unsigned v=0;v<256;++v){
+      cpu_write(0x7ffd,v);pb(0,(v&1)*4);assert(SRAM[0x1ffd]==v && SRAMwritten);
+      MapperSram(0x7ffe,v);cb(0,(v&15)*4);
+      MapperSram(0x7fff,v^3);cb(4,((v^3)&15)*4);
+      MapperWrite(0x8000,0);pb(0,(v&1)*4);
+      MapperSram(0x6ffd,0);pb(0,(v&1)*4);
+    }
+    assert(!MapperSramOwnsWrite);assert(InfoNES_Reset()==0);pb(0,0);cb(0,0);cb(4,4);finish();
+  }
+  {
+    auto r=make(140,8,16);start(r);
+    for(unsigned v=0;v<256;++v)for(WORD a:{0x6000,0x6fff,0x7fff}){
+      MapperSram(a,v);
+      for(unsigned slot=0;slot<4;++slot)pb(slot,((v>>4)&3)*4+slot);
+      cb(0,(v&15)*8);
+    }
+    MapperApu(0x5fff,0);MapperWrite(0xffff,0);pb(0,12);cb(0,120);
+    SRAM[0]=0x56;cpu_write(0x6000,0x21);pb(0,8);cb(0,8);
+    assert(SRAM[0]==0x56 && !SRAMwritten);
+    assert(InfoNES_Reset()==0);pb(0,0);cb(0,0);finish();
+  }
+  {
+    auto r=make(226,64,0);start(r);mirror(true);PPURAM[7]=0x65;
+    for(unsigned outer=0;outer<256;++outer)for(unsigned inner=0;inner<256;++inner){
+      MapperWrite(0xffff,outer);MapperWrite(0xfffe,inner);
+      // 16 KiB page bits: r1.0 / r0.7 / r0.4..0; top bit wraps at 1 MiB.
+      unsigned bank=((inner&31)|((inner&128)>>2)|((outer&1)<<6))%64;
+      unsigned lo=(inner&32)?bank:(bank&~1u),hi=(inner&32)?bank:(lo+1);
+      pb(0,lo*2);pb(1,lo*2+1);pb(2,hi*2);pb(3,hi*2+1);mirror(!(inner&64));
+    }
+    assert(PPURAM[7]==0x65 && MapperHSync==Map0_HSync);
+    assert(InfoNES_Reset()==0);pb(0,0);pb(3,3);mirror(true);finish();
+  }
+  auto live=make(140,8,16);start(live);auto before=ROM;
+  for(auto bad:{make(32,32,16),make(32,8,0),make(32,8,16,1),make(34,8,8),
+                make(34,4,0,1),make(34,4,8,2),make(140,16,16),make(226,64,1)}){
+    assert(!nes::infones_adapter::load(bad.data(),bad.size()));assert(ROM==before);
+  }
+  finish();
+}
+int main(){nrom();dendy_vblank_scroll();mapper48();clipping();cpu_operands();audio_backpressure();simple_mapper_boards();hengge177();discrete_board_registers();bank_switch_boards();medium_mapper_boards();mapper_ram_permissions();sram_dispatch_lifecycle();
   cartridge_loading();lifecycle_and_oom();admitted_bank_bounds();mapper8_and_dxrom();mmc3_appended_chr();sunsoft69();newly_admitted_boards();
   puts("core cartridge regression passed");}

@@ -78,7 +78,7 @@ v1/v2 不支持 Home，返回首页请使用 Tufty 本机 Home。本仓库 PC �
 - 只读取 `roms/` 第一层，最多 128 个游戏。
 - 文件名最多 255 个 ASCII 字节，扩展名 `.nes` 不区分大小写。
 
-公共加载入口支持的 Mapper 编号及板型见[核心契约](core-contract.md#卡带支持范围)。PRG 通常最多 512 KiB，Mapper 15、177、241 最多 1 MiB；CHR 最多 256 KiB，并受各板型更小的容量限制。PRG 容量须为二的幂，CHR ROM 除 Mapper 4 允许按 8 KiB 追加银行外也须为二的幂。其余 Mapper 实现保留在核心中，不属于公共加载入口的支持范围。
+公共加载入口支持的 Mapper 编号及板型见[核心契约](core-contract.md#卡带支持范围)。PRG 通常最多 512 KiB，Mapper 15、34、177、226、241 最多 1 MiB；CHR 最多 256 KiB，并受各板型更小的容量限制。PRG 容量须为二的幂，CHR ROM 除 Mapper 4 允许按 8 KiB 追加银行外也须为二的幂。其余 Mapper 实现保留在核心中，不属于公共加载入口的支持范围。
 
 NES 2.0 支持标准 NES、NTSC/PAL/Dendy 时序及经过验证的 submapper；多区域 ROM 默认使用 NTSC。Mapper 78 需明确标注 submapper 1（Cosmo Carrier）或 3（Holy Diver），避免两类镜像接线混用。Mapper 242 仅接纳带电池 RAM 的 RPG 板型。不转换成旧头，也不修改原文件。完整尺寸、RAM 和外设限制见 [核心契约](core-contract.md)。未知扩展 Mapper 明确报错，不回退为低八位 Mapper。
 

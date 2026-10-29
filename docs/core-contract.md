@@ -42,9 +42,9 @@
 
 ## 卡带支持范围
 
-公共加载入口接纳 Mapper **0、1、2、3、4、7、8、11、15、18、23、24、25、33、41、48、66、69、70、71、72、75、76、78、79、86、87、88、89、92、97、112、113、133、177、184、206、240、241、242、243、244、268**，并施加以下约束：
+公共加载入口接纳 Mapper **0、1、2、3、4、7、8、11、15、18、23、24、25、32、33、34、41、48、66、69、70、71、72、75、76、78、79、86、87、88、89、92、97、112、113、133、140、177、184、206、226、240、241、242、243、244、268**，并施加以下约束：
 
-- PRG ROM 容量为二的幂，通常为 16–512 KiB；Mapper 15、177、241 上限为 1 MiB。存在 CHR ROM 时为 8–256 KiB，并受下列板型限制。
+- PRG ROM 容量为二的幂，通常为 16–512 KiB；Mapper 15、34、177、226、241 上限为 1 MiB。存在 CHR ROM 时为 8–256 KiB，并受下列板型限制。
 - CHR ROM 容量为二的幂，Mapper 4 例外：允许以 8 KiB 为单位追加银行，按实际 1 KiB 银行数取模寻址。
 - Mapper 0（NROM）：PRG 不超过 32 KiB，CHR ROM 不超过 8 KiB。
 - Mapper 3（CNROM）：PRG 不超过 32 KiB，必须有 CHR ROM 且不超过 32 KiB。
@@ -57,6 +57,10 @@
 - Mapper 33、48、66 与 69（FME-7 / Sunsoft 5B）：必须有 CHR ROM。Mapper 33 按 TC0190 接线，无 IRQ；需要 TC0690 IRQ 的卡带应正确声明 Mapper 48。
 - Mapper 23（VRC2/VRC4）、24（VRC6）与 25（VRC4）：PRG 不超过 256 KiB，必须有 CHR ROM；23 额外支持 NES 2.0 submapper 2（VRC4e）、3（VRC2b），25 额外支持 submapper 2（VRC4d）。VRC IRQ 沿用扫描线级实现，不提供逐 CPU 周期精度。23.3 无 IRQ；无 PRG RAM 时提供一位锁存，开放总线以地址高字节近似。
 - Mapper 23.2 支持 WRAM 使能，容量不超过 4 KiB 时仅映射 `$6000–$6FFF`；未明确板型的 23.0 保留兼容 RAM 访问，不套用 VRC4 的使能规则。
+- Mapper 32（Irem G-101）：仅 submapper 0，PRG 不超过 256 KiB，CHR ROM 不超过 256 KiB；支持即时 PRG 窗口交换和横/纵镜像，不接纳四屏与固定单屏变种。
+- Mapper 34：旧头按 CHR 类型区分 BNROM（CHR RAM）与 NINA-001（CHR ROM）；NES 2.0 支持 submapper 1（NINA-001）、2（BNROM）。BNROM PRG 上限 1 MiB，并模拟总线冲突；NINA-001 PRG/CHR ROM 均不超过 64 KiB，寄存器位于 `$7FFD–$7FFF`，写入同时保存到 SRAM。两者不接纳四屏。
+- Mapper 140（JF-11/14）：PRG、CHR ROM 均不超过 128 KiB；寄存器位于 `$6000–$7FFF`，不写入 SRAM。
+- Mapper 226：PRG 上限 1 MiB，8 KiB CHR RAM；支持双寄存器、16/32 KiB 银行与横/纵镜像，不接纳四屏。
 - Mapper 70：PRG、CHR ROM 均不超过 128 KiB，必须有 CHR ROM；沿用旧 70/152 文件的镜像控制兼容行为。
 - Mapper 71：PRG 不超过 256 KiB，仅使用 CHR RAM。
 - Mapper 177（Hengge）：32 KiB PRG 银行切换，上限 1 MiB，仅使用 8 KiB CHR RAM；支持横/纵镜像控制，不接纳四屏声明。NES 2.0 必须声明 8 KiB PRG RAM 或 NVRAM；不提供持久化存档。

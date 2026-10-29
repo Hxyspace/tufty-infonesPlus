@@ -190,7 +190,8 @@ class RomTests(unittest.TestCase):
 
     def test_new_boards_preserve_extended_mapper_and_submapper(self):
         for mapper, sub in ((2, 2), (3, 2), (8, 0), (206, 0), (206, 1), (11, 0), (15, 0), (18, 0), (23, 0), (23, 2), (23, 3),
-                            (33, 0), (70, 0), (71, 0), (177, 0), (241, 0),
+                            (32, 0), (33, 0), (34, 0), (34, 1), (34, 2), (140, 0), (226, 0),
+                            (70, 0), (71, 0), (177, 0), (241, 0),
                             (24, 0), (25, 0), (25, 2), (268, 0), (41, 0), (72, 0), (75, 0), (76, 0),
                             (7, 2), (78, 1), (78, 3), (79, 0), (86, 0), (87, 0), (88, 0), (89, 0), (92, 0),
                             (97, 0), (112, 0), (113, 0), (133, 0), (184, 0), (240, 0), (242, 0), (243, 0), (244, 0)):
@@ -207,7 +208,8 @@ class RomTests(unittest.TestCase):
                     data[8] = (unsupported << 4) | (mapper >> 8)
                     self.assertEqual(review(bytes(data), {}, supported_mappers()).error,
                                      not ((mapper == 23 and unsupported == 3) or (mapper == 206 and unsupported == 1)
-                                          or (mapper == 78 and unsupported in (1, 3))))
+                                          or (mapper == 78 and unsupported in (1, 3))
+                                          or (mapper == 34 and unsupported in (1, 2))))
 
     def test_nes2_checksum_correction_updates_all_mapper_bits(self):
         data = bytearray(self.data)

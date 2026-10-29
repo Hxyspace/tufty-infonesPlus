@@ -548,7 +548,6 @@ void Map135_Set_PPU_Banks();
 
 void Map140_Init();
 void Map140_Sram(WORD wAddr, BYTE byData);
-void Map140_Apu(WORD wAddr, BYTE byData);
 
 void Map151_Init();
 void Map151_Write(WORD wAddr, BYTE byData);

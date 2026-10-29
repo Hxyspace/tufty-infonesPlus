@@ -50,6 +50,7 @@ void Map226_Init()
   /* Initialize Registers */
   Map226_Reg[0] = 0;
   Map226_Reg[1] = 0;
+  Map226_Write(0x8000, 0);
   
   /* Set up wiring of the interrupt pin */
   K6502_Set_Int_Wiring( 1, 1 ); 
