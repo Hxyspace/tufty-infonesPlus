@@ -11,7 +11,11 @@ inline Timing timing;
 void load_art();
 void enter(uint32_t now_ms);
 void service(uint32_t now_ms);
-// UI card 0 is Settings; cards 1..count map to ROM 0..count-1.
+// UI card 0 is Settings; later cards map through the current game list.
+int last_card();
+void actions(uint8_t pressed,int &selected,float &position);
+bool suspend(int game);
+void resume();
 void draw(uint16_t *out,int selected,float position,uint32_t elapsed,const char *message=nullptr);
 void draw_loading(uint16_t *out,uint32_t elapsed);
 // Select identity and prepare text; cover misses remain placeholders until presented.

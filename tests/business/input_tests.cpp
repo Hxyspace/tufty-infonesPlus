@@ -63,6 +63,11 @@ int main() {
     navigation.enable(Source::Ble,true); send(remote); send(remote,0x18);
     remote.receive(nullptr,0); assert(!navigation.nes(false,248));
     send(remote); navigation.take_menu();
+    send(remote,0x0800); assert(navigation.take_menu().pressed==input::Favorite && navigation.nes()==Start);
+    assert(!navigation.take_menu().pressed); send(remote); navigation.take_menu();
+    send(remote,0x0400); assert(navigation.take_menu().pressed==input::List && navigation.nes()==Select);
+    navigation.clear_events(); assert(!navigation.take_menu().held);
+    send(remote); navigation.take_menu();
     menu::Repeat repeat;
     input::Snapshot held{input::Next,input::Next,0};
     assert(repeat.poll(held,100)==input::Next);
@@ -96,6 +101,15 @@ int main() {
     assert(menu::launch_requested(input::Confirm));
     assert(!menu::launch_requested(input::Confirm|input::Next));
     assert(!menu::launch_requested(input::Confirm|input::Previous));
+    assert(!menu::launch_requested(input::Confirm|input::Favorite));
+    assert(!menu::launch_requested(input::Confirm|input::List));
+    repeat.reset();
+    assert(!repeat.poll({input::Favorite|input::List,input::Favorite|input::List,0},0));
+    assert(!repeat.poll({input::Favorite,input::Favorite,0},1));
+    assert(!repeat.poll({input::Favorite,0,0},10000));
+    repeat.poll({},10001);
+    assert(repeat.poll({input::Favorite,input::Favorite,0},10002)==input::Favorite);
+    assert(!repeat.poll({input::Favorite,0,0},20000));
     // A held direction behind the input barrier cannot trigger menu repeat.
     navigation.local(input::LocalC); navigation.clear_events();
     assert(!navigation.take_menu().held); navigation.local(0);

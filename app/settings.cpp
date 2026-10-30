@@ -1,5 +1,6 @@
 #include "settings.hpp"
 #include "library.hpp"
+#include "game_lists.hpp"
 #include "configuration.hpp"
 #include "controllers.hpp"
 #include "ble.hpp"
@@ -19,7 +20,7 @@ enum class LibraryAction {None,Move,Reset};
 LibraryAction library_action=LibraryAction::None;
 char move_name[256]{};
 uint32_t library_generation=0;
-bool unsaved() {return configuration::changed() || library::pending();}
+bool unsaved() {return configuration::changed() || library::pending() || game_lists::pending();}
 enum class Dialog {None,Confirm,SaveError,Brightness,SleepTime,ControllerId};
 Page current=Page::Root;
 unsigned focuses[unsigned(Page::Count)]{};
@@ -54,7 +55,8 @@ Row rows[17];
 unsigned row_count=0;
 char footer[96]{};
 const char *titles[]={"Settings","Display","Control","Bluetooth","Search gamepads","Gamepad",
-    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front"};
+    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front","View list","Favorites"};
+static_assert(sizeof titles/sizeof *titles==unsigned(Page::Count));
 constexpr Page categories[]={Page::Display,Page::Control,Page::Power,Page::System,Page::About};
 constexpr ui::Icon category_icons[]={ui::Icon::Display,ui::Icon::Control,ui::Icon::Power,ui::Icon::System,ui::Icon::About};
 constexpr uint32_t sleep_presets[]={0,60,180,300,600,1800};
@@ -106,12 +108,13 @@ void marked(const char *label,bool enabled) {
     add(label); rows[row_count-1].mark=enabled?Mark::On:Mark::Off;
 }
 Row row_at(Page view,unsigned i) {
-    if(view!=Page::GameOrder) return rows[i];
+    if(view!=Page::GameOrder && view!=Page::Favorites) return rows[i];
     Row row;
     if(i<storage::count) {
         const char *title=storage::title(i);
         std::snprintf(row.label,sizeof row.label,"%.*s",int(sizeof row.label-1),title?title:storage::entries[i].name);
-        row.enabled=i!=0;
+        row.enabled=view==Page::Favorites || i!=0;
+        if(view==Page::Favorites) row.mark=game_lists::favorite(i)?Mark::On:Mark::Off;
     }
     return row;
 }
@@ -124,6 +127,7 @@ const char *parent_title() {
     case Page::AllowedDevice: return "Allowed devices";
     case Page::GameLibrary: return "System";
     case Page::GameOrder: return "Game library";
+    case Page::LibraryView: case Page::Favorites: return "Game library";
     default: return "Settings";
     }
 }
@@ -211,7 +215,14 @@ void model(uint32_t now=0,Page view=Page::Count) {
     case Page::GameLibrary:
         add("Move to front","",true); rows[0].enabled=storage::count>1;
         add("Reset order"); rows[1].enabled=library::custom_order();
-        add("Rebuild index"); break;
+        add("Rebuild index"); add("View list","",true); add("Favorites","",true); break;
+    case Page::LibraryView:
+        marked("All games",game_lists::view()==game_lists::View::All);
+        marked("Favorites",game_lists::view()==game_lists::View::Favorites);
+        marked("Recently played",game_lists::view()==game_lists::View::Recent); break;
+    case Page::Favorites:
+        row_count=storage::count;
+        std::snprintf(footer,sizeof footer,"Confirm: favorite / unfavorite"); break;
     case Page::GameOrder:
         row_count=storage::count;
         std::snprintf(footer,sizeof footer,"Confirm: move to first game"); break;
@@ -245,6 +256,7 @@ void back() {
     case Page::Allowed: case Page::Mode: go(Page::Bluetooth); break;
     case Page::GameLibrary: go(Page::System); break;
     case Page::GameOrder: go(Page::GameLibrary); break;
+    case Page::LibraryView: case Page::Favorites: go(Page::GameLibrary); break;
     default: go(Page::Root); break;
     }
 }
@@ -360,14 +372,22 @@ void activate(uint32_t now) {
     case Page::System:
         if(row==0) go(Page::GameLibrary);
         else if(row==1) ask(Confirm::Disk,"Restart as a USB disk?");
-        else if(row==2) ask(Confirm::Defaults,"Reset settings and order?");
+        else if(row==2) ask(Confirm::Defaults,"Clear settings and game lists?");
         else ask(Confirm::Bootsel,"Restart in firmware updater?");
         break;
     case Page::GameLibrary:
         if(row==0) go(Page::GameOrder);
         else if(row==1) ask(Confirm::ResetOrder,"Restore filename order?");
-        else request_exit(Exit::Rebuild);
+        else if(row==2) request_exit(Exit::Rebuild);
+        else go(row==3?Page::LibraryView:Page::Favorites);
         break;
+    case Page::LibraryView:
+        game_lists::view(static_cast<game_lists::View>(row));
+        request_exit(Exit::Browse); break;
+    case Page::Favorites:
+        if(game_lists::toggle(row)) say(game_lists::favorite(row)?"Added to favorites":"Removed from favorites");
+        else say(storage::error);
+        barrier(); break;
     case Page::GameOrder:
         std::snprintf(move_name,sizeof move_name,"%s",storage::entries[row].name);
         library_action=LibraryAction::Move; say("Updating order..."); barrier(); break;
@@ -376,6 +396,7 @@ void activate(uint32_t now) {
 }
 }
 void open() {
+    game_lists::open(); game_lists::refresh();
     library_action=LibraryAction::None; library_generation=storage::generation();
     opened=true; current=Page::Root; completed=target=Exit::None;
     focuses[unsigned(Page::Root)]=0;
@@ -415,7 +436,8 @@ void update(input::Snapshot keys,bool home,uint32_t now) {
     drawn_now=now; configuration::sync();
     if(library_generation!=storage::generation()) {
         library_generation=storage::generation();
-        if(current==Page::GameOrder || current==Page::GameLibrary) {
+        game_lists::refresh();
+        if(current==Page::GameOrder || current==Page::GameLibrary || current==Page::Favorites) {
             library_action=LibraryAction::None; selected()=0;
             if(dialog==Dialog::Confirm) dialog=Dialog::None;
             barrier();
@@ -512,6 +534,7 @@ void update(input::Snapshot keys,bool home,uint32_t now) {
             } else if(choice==0) {dialog=Dialog::None; saving=true; say("Saving..."); barrier();}
             else if(choice==1) {
                 library::discard();
+                game_lists::discard();
                 dialog=Dialog::None; waiting_release=true; save_bypassed=true;
                 say("Session only; release buttons"); barrier();
             }
@@ -556,6 +579,8 @@ void after_present() {
         auto result=configuration::save(); saving=false;
         if(result!=configuration::SaveResult::Failed && result!=configuration::SaveResult::Unavailable && library::pending())
             result=library::save()?configuration::SaveResult::Saved:configuration::SaveResult::Failed;
+        if(result!=configuration::SaveResult::Failed && result!=configuration::SaveResult::Unavailable && game_lists::pending())
+            result=game_lists::save()?configuration::SaveResult::Saved:configuration::SaveResult::Failed;
         std::printf("State save: %s\n",result==configuration::SaveResult::Saved?"OK":
             result==configuration::SaveResult::Unchanged?"unchanged":
             result==configuration::SaveResult::Unavailable?"unavailable; runtime settings retained":"failed; original record retained");

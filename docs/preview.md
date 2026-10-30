@@ -28,11 +28,9 @@ python3 tools/preview.py --resources resources-local --settings
 
 | 按键 | 作用 |
 |---|---|
-| 方向键 | 游戏库切换/简介分页、Settings 导航、NES 方向 |
-| Z / Enter | UI 确认 |
-| X / Escape | UI 返回；游戏中为 NES B |
-| Z / X | NES A / B |
-| Enter / 右 Shift | NES Start / Select |
+| 方向键 | 手柄十字键 |
+| Z / X | 手柄 A / B |
+| Enter / 左右 Shift | 手柄 Start / Select |
 | Home | 退出当前应用回游戏库 |
 | Q / W / E、I / K、H | 本机 A / B / C、Up / Down、Home，远程输入关闭时仍可用 |
 | F2 | 切换模拟的 BLE / 串口 / 未连接输入来源 |
@@ -40,6 +38,8 @@ python3 tools/preview.py --resources resources-local --settings
 | F12 | 保存当前 320×240 画面到工作目录 `preview.bmp` |
 
 默认由键盘模拟 BLE 手柄。蓝牙候选设备、电量、亮度硬件效果和 TE 状态为模拟值，不连接 PC 蓝牙或串口；关闭远程输入后可用本机映射继续操作。BOOTSEL 和休眠在完成真实设置保存流程后返回游戏库。NES 使用实际核心与区域时序，无声音输出；游戏进度不会保存。此工具不能用于判断 LCD、无线、Flash 寿命、设备性能或功耗。
+
+手柄映射在所有模式下保持一致：Z 确认、X 返回，游戏库中 Enter 收藏或取消、任一 Shift 切换列表。
 
 USB Disk 的传输由按键模拟；F7 弹出后回到第一款游戏，按住本机 Home（H）会推迟返回，松开继续。Home 本身不退出磁盘模式。
 
@@ -60,8 +60,8 @@ USB Disk 的传输由按键模拟；F7 弹出后回到第一款游戏，按住�
 2 shot library.bmp
 3 press Left
 4 release Left
-6 press Return
-7 release Return
+6 press Z
+7 release Z
 10 expect view settings
 10 shot settings.bmp
 12 quit

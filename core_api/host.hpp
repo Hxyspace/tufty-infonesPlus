@@ -8,6 +8,8 @@ struct Host {
   void (*line)(unsigned y,const std::uint16_t *pixels,std::uint8_t mask,bool pal)=nullptr;
   void (*frame)()=nullptr;
   void (*message)(const char *)=nullptr;
+  // Once after successful initialization, before emulation. Not a frame callback.
+  void (*started)()=nullptr;
 };
 namespace infones_adapter {
 // Synchronous single-instance run. Every callback is borrowed until return.

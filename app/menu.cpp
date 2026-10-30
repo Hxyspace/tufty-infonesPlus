@@ -3,6 +3,8 @@
 #include "storage.hpp"
 #include "menu_assets.hpp"
 #include "menu_layout.hpp"
+#include "game_lists.hpp"
+#include "input.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -39,7 +41,8 @@ static uint32_t cover_generation=0;
 static int description_index=-1;
 static uint32_t description_generation=0;
 static int description_page=0;
-static uint32_t __uninitialized_psram("description_pages") checkpoints[layout::MaxCheckpoints];
+static bool checkpoints_borrowed=false;
+alignas(8) static uint32_t __uninitialized_psram("description_pages") checkpoints[layout::MaxCheckpoints];
 static unsigned description_pages=1;
 static const char *description_source="No description available";
 static char body_lines[layout::LinesPerPage][layout::LineBytes];
@@ -59,9 +62,11 @@ static int cached_cover(int index) {
 }
 static void load_cover(int index) {
     int slot=-1;
+    const int position=game_lists::position(cover_index);
     for(int i=0;i<3;++i) {
         const auto &c=cover_cache[i];
-        if(c.index<0 || c.generation!=storage::generation() || std::abs(c.index-cover_index)>1) {slot=i; break;}
+        const int other=game_lists::position(c.index);
+        if(c.index<0 || c.generation!=storage::generation() || other<0 || std::abs(other-position)>1) {slot=i; break;}
     }
     if(slot<0) return;
     const auto generation=storage::generation();
@@ -86,7 +91,7 @@ bool prefetch(uint32_t now_ms,bool navigation_active) {
     if(now_ms-prefetch_since<50 || cover_index<0 || cover_generation!=storage::generation()) return false;
     if(cached_cover(cover_index)<0) return false; // Current selection always takes priority.
     for(int offset : {-1,1}) {
-        const int index=cover_index+offset;
+        const int index=game_lists::game(game_lists::position(cover_index)+offset);
         if(index>=0 && size_t(index)<storage::count && cached_cover(index)<0) {
             load_cover(index); ++timing.prefetches; return true;
         }
@@ -172,9 +177,14 @@ void load_art() {
     for(auto &entry:cover_cache) entry={};
     prefetch_wait=true;
 }
-void enter(uint32_t now_ms) {ui::service(now_ms);}
+void enter(uint32_t now_ms) {ui::service(now_ms); game_lists::open(); game_lists::refresh();}
 void service(uint32_t now_ms) {ui::service(now_ms);}
 void select(int index) {
+    game_lists::refresh();
+    if(checkpoints_borrowed) {
+        if(!game_lists::resume()) return;
+        checkpoints_borrowed=false;
+    }
     const auto generation=storage::generation();
     if(index!=description_index && description_index>=0 && description_generation==generation) {
         previous.index=description_index; previous.generation=generation;
@@ -192,13 +202,73 @@ void select(int index) {
 void reset_page() {description_page=0; description_index=-1;}
 void previous_page() {if(description_index>=0 && description_page>0) {--description_page; prepare_body_lines();}}
 void next_page() {if(description_index>=0 && description_page+1<static_cast<int>(description_pages)) {++description_page; prepare_body_lines();}}
+int last_card() {return int(std::max(size_t(1),game_lists::count()));}
+void actions(uint8_t pressed,int &selected,float &position) {
+    if(pressed&(input::Previous|input::Next|input::PagePrevious|input::PageNext)) return;
+    const int index=game_lists::game(selected-1);
+    if(pressed&input::List) {
+        game_lists::view(static_cast<game_lists::View>((unsigned(game_lists::view())+1)%3));
+        const int at=game_lists::position(index);
+        selected=at>=0?at+1:1; position=float(selected);
+        previous.index=-1; reset_page(); select(game_lists::game(selected-1));
+        storage::error[0]=0;
+    } else if((pressed&input::Favorite) && index>=0) {
+        storage::error[0]=0;
+        if(game_lists::toggle(size_t(index)) && game_lists::view()==game_lists::View::Favorites) {
+            selected=std::min(selected,last_card()); position=float(selected);
+            previous.index=-1; reset_page(); select(game_lists::game(selected-1));
+        }
+    }
+}
+bool suspend(int index) {
+    const bool ok=game_lists::suspend(checkpoints,sizeof checkpoints,index);
+    if(ok) checkpoints_borrowed=true;
+    return ok;
+}
+void resume() {
+    // The description checkpoint workspace was borrowed while emulating.
+    const int index=description_index,page=description_page;
+    description_index=-1;
+    if(!game_lists::resume()) {previous.index=-1; return;}
+    checkpoints_borrowed=false;
+    if(index>=0 && size_t(index)<storage::count) {
+        prepare_description(index); description_page=std::min(page,int(description_pages)-1); prepare_body_lines();
+    }
+}
+static void heart(uint16_t *out,int x,int y,uint16_t color,bool filled) {
+    // A tiny monochrome mask stays in Flash; neither assets nor RGB buffers.
+    constexpr uint16_t mask[]={0x18c,0x3de,0x7ff,0x7ff,0x7ff,0x3fe,0x1fc,0x0f8,0x070,0x020};
+    for(int row=0;row<10;++row) for(int col=0;col<11;++col) {
+        const unsigned bit=1u<<col;
+        if(!(mask[row]&bit)) continue;
+        const bool inside=row>0 && row<9 && col>0 && col<10 &&
+            (mask[row-1]&bit) && (mask[row+1]&bit) && (mask[row]&(bit>>1)) && (mask[row]&(bit<<1));
+        if(filled || !inside) box(out,x+col,y+row,1,1,color);
+    }
+}
+static void list_icon(uint16_t *out) {
+    constexpr int x=144,y=9;
+    switch(game_lists::view()) {
+    case game_lists::View::All:
+        for(int row=0;row<3;++row) for(int col=0;col<3;++col) box(out,x+col*6,y+row*6,3,3,ui::cyan);
+        break;
+    case game_lists::View::Favorites: heart(out,x+2,y+3,ui::cyan,true); break;
+    case game_lists::View::Recent:
+        for(int row=-7;row<=7;++row) for(int col=-7;col<=7;++col) {
+            const int r=row*row+col*col;
+            if(r>=34 && r<=53) box(out,x+7+col,y+7+row,1,1,ui::cyan);
+        }
+        box(out,x+7,y+3,1,5,ui::cyan); box(out,x+7,y+7,4,1,ui::cyan); break;
+    }
+}
 void draw(uint16_t *out,int selected,float position,uint32_t elapsed,const char *message) {
     ui::canvas(out);
+    list_icon(out);
     {
         const int first=std::max(0,static_cast<int>(std::floor(position))-1);
-        const int last=std::min<int>(storage::count+1,first+4);
+        const int last=std::min<int>(last_card()+1,first+4);
         for(int card=first;card<last;++card) {
-            const int i=card-1;
+            const int i=game_lists::game(card-1);
             const int left=13+std::lround((card-position)*310);
             if(left>=320 || left+294<=0) continue;
             const int iy=66+std::lround(std::sin((elapsed+card*700)/2400.0f*6.2831853f)*3);
@@ -216,8 +286,19 @@ void draw(uint16_t *out,int selected,float position,uint32_t elapsed,const char 
                 title(out,"Settings",left+94,53);
                 text(out,"SYSTEM",left+40-text_width("SYSTEM",art::body_glyphs)/2,153,rgb(115,120,128));
                 const char *lines[]={"Display and controls","Power and device","preferences.","No games installed."};
-                for(int row=0;row<(storage::count?3:4);++row)
-                    text(out,lines[row],left+94,119+22*row,rgb(192,197,203),art::body_glyphs,art::body_pixels,40,210);
+                for(int row=0;row<(storage::count?3:4);++row) {
+                    const bool error=row==0 && card==selected && message;
+                    text(out,error?message:lines[row],left+94,119+22*row,error?ui::orange:ui::grey,
+                        art::body_glyphs,art::body_pixels,40,210);
+                }
+                continue;
+            }
+            if(i<0) {
+                title(out,game_lists::view()==game_lists::View::Favorites?"Favorites":
+                    game_lists::view()==game_lists::View::Recent?"Recently played":"Games",left+94,53);
+                const char *empty=game_lists::view()==game_lists::View::Favorites?"No favorites yet":
+                    game_lists::view()==game_lists::View::Recent?"No recent games":"No games installed";
+                text(out,message?message:empty,left+94,119,ui::grey,art::body_glyphs,art::body_pixels,40,210);
                 continue;
             }
             const bool old=previous.index==i && previous.generation==storage::generation();
@@ -231,13 +312,15 @@ void draw(uint16_t *out,int selected,float position,uint32_t elapsed,const char 
                 box(out,left+25,iy+46,9,12,rgb(255,174,45)); box(out,left+45,iy+46,9,12,rgb(255,174,45));
             }
             title(out,display_title(i),left+94,53);
+            const bool favorite=game_lists::favorite(size_t(i));
+            heart(out,left+77,60,favorite?rgb(248,102,118):ui::grey,favorite);
             const bool current=i==description_index && description_generation==storage::generation();
             const auto *lines=current?body_lines:old?previous.lines:nullptr;
             const unsigned pages=current?description_pages:old?previous.pages:1;
             const unsigned page=current?unsigned(description_page):old?previous.page:0;
             const char *label=current?page_label:old?previous.label:"";
             const uint16_t auxiliary=rgb(115,120,128);
-            char counter[16]; std::snprintf(counter,sizeof(counter),"%02u/%02u",unsigned(i)+1,unsigned(storage::count));
+            char counter[16]; std::snprintf(counter,sizeof(counter),"%02u/%02u",unsigned(card),unsigned(game_lists::count()));
             // The left column has 94 px; use its full width for large counts.
             text(out,counter,left+40-text_width(counter,art::body_glyphs)/2,153,auxiliary,art::body_glyphs,art::body_pixels,40,210);
             if(card==selected && message) {
@@ -257,10 +340,10 @@ void draw(uint16_t *out,int selected,float position,uint32_t elapsed,const char 
     const uint16_t orange=rgb(255,174,45), dim=rgb(81,44,14);
     for(int y=-5;y<=5;++y) {
         box(out,51+std::abs(y),225+y,2,1,selected>0?orange:dim);
-        box(out,258-std::abs(y),225+y,2,1,selected<static_cast<int>(storage::count)?orange:dim);
+        box(out,258-std::abs(y),225+y,2,1,selected<last_card()?orange:dim);
     }
     box(out,80,225,160,2,dim);
-    const int thumb=storage::count?std::lround(position*144/storage::count):0;
+    const int thumb=std::lround(position*144/last_card());
     box(out,80+thumb,223,16,5,orange);
     if(elapsed<250) for(int i=0;i<320*240;++i) out[i]=blend(0,out[i],elapsed*255/250);
 }

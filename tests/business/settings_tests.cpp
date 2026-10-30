@@ -39,6 +39,8 @@ namespace storage {
 Config config;
 Entry table[128]{}; Entry *entries=table; size_t count=0; char error[96]{};
 bool state_ready() {return writable;}
+FileStatus file_size(const char *,size_t &bytes) {bytes=0; return FileStatus::Missing;}
+bool write_state(const char *,const void *,size_t,Progress) {return save_ok;}
 bool save() {++saves; return save_ok;}
 bool reset_state() {++resets; return reset_ok;}
 bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {

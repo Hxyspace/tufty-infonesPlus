@@ -5,6 +5,7 @@
 #include "storage.hpp"
 #include "usb.hpp"
 #include "menu.hpp"
+#include "game_lists.hpp"
 #include "ui.hpp"
 #include "settings.hpp"
 #include "configuration.hpp"
@@ -43,7 +44,9 @@ static void library_progress() {
 }
 static void refresh_library(bool force=false) {
     library_loading=false; menu::select(-1);
+    game_lists::view(game_lists::View::All);
     storage::scan(force,library_progress);
+    game_lists::refresh();
     input::hub.clear_events();
 }
 static void sample_local() {
@@ -101,17 +104,23 @@ static void game_frame() {
     diagnostics::working=true;
 }
 static void game_message(const char *text){std::printf("NES: %s\n",text);}
-static void run_game() {
+static uint8_t game_timing=0;
+static void game_started() {
+    game_lists::started();
+    const auto now=time_us_32();
+    if(game_timing==1)frame_clock.reset(now,1662607,341*312*5,16);
+    else if(game_timing==3)frame_clock.reset(now,1773448,341*312,3);
+    else frame_clock.reset(now,1789773,341*262,3);
+}
+static void run_game(int index) {
     nes::Cartridge image;const char *error=nullptr;
     if(!nes::inspect(rom_data,rom_bytes,image,&error)) {
         std::printf("NES: %s\n",error?error:"Unsupported ROM");
         std::snprintf(storage::error,sizeof storage::error,"Unsupported ROM");return;
     }
-    const auto now=time_us_32();
-    if(image.timing==1)frame_clock.reset(now,1662607,341*312*5,16);
-    else if(image.timing==3)frame_clock.reset(now,1773448,341*312,3);
-    else frame_clock.reset(now,1789773,341*262,3);
-    const nes::Host host{tufty_service,game_input,game_line,game_frame,game_message};
+    if(!menu::suspend(index)) return;
+    game_timing=image.timing;
+    const nes::Host host{tufty_service,game_input,game_line,game_frame,game_message,game_started};
     SCREEN=&display::game_buffer();display::begin_game();
     diagnostics::reset();diagnostics::playing=true;
     if(!nes::infones_adapter::run(host,rom_data,rom_bytes,&error)) {
@@ -122,6 +131,7 @@ static void run_game() {
     display::end_game();
     diagnostics::playing=false;
     diagnostics::working=false;
+    menu::resume();
 }
 int main() {
     display::early_init();
@@ -161,11 +171,13 @@ int main() {
     sample_local(); input::hub.clear_events();
     power::menu(true);
     menu::enter(opened);
-    menu::select(selected-1);
+    menu::select(game_lists::game(selected-1));
     while(true) {
         tufty_service();
         ui::service(to_ms_since_boot(get_absolute_time()));
         configuration::sync();
+        game_lists::refresh();
+        if(selected>menu::last_card()) {selected=menu::last_card(); position=selected;}
         if(!settings::transitioning()) {
             sleep_duration=0;
             if(usb::disk_requested || usb::boot_requested) {
@@ -181,7 +193,7 @@ int main() {
         if(usb::rescan_requested) {
             usb::rescan_requested=false; refresh_library(true); selected=0;
             position=selected; menu::reset_page();
-            menu::select(selected-1);
+            menu::select(game_lists::game(selected-1));
         }
         auto keys=input::hub.take_menu();
         const bool home=input::hub.take_home();
@@ -200,8 +212,8 @@ int main() {
                 power::sleep(sleep_duration); sleep_duration=0; power::process(true);
             }
             if(exit!=settings::Exit::None) {
-                if(exit!=settings::Exit::ResumeLibrary) {selected=0; position=0;}
-                repeat.reset(); menu::select(selected-1);
+                if(exit!=settings::Exit::ResumeLibrary) {selected=exit==settings::Exit::Browse?1:0; position=selected;}
+                repeat.reset(); menu::select(game_lists::game(selected-1));
                 opened=to_ms_since_boot(get_absolute_time()); power::activity();
             }
             continue;
@@ -210,7 +222,8 @@ int main() {
         uint8_t pressed=repeat.poll(keys,to_ms_since_boot(get_absolute_time()));
         const int old_selected=selected;
         if(pressed&input::Previous) selected=std::max(0,selected-1);
-        if(pressed&input::Next) selected=std::min<int>(storage::count,selected+1);
+        if(pressed&input::Next) selected=std::min(menu::last_card(),selected+1);
+        menu::actions(pressed,selected,position);
         if(selected!=old_selected) storage::error[0]=0;
         if(selected>0 && !(pressed&(input::Previous|input::Next))) {
             if(pressed&input::PagePrevious) menu::previous_page();
@@ -219,21 +232,24 @@ int main() {
         if(menu::launch_requested(pressed) && selected==0) {
             settings::open(); repeat.reset(); continue;
         }
-        if(menu::launch_requested(pressed) && selected>0) {
+        const int game=game_lists::game(selected-1);
+        if(menu::launch_requested(pressed) && game>=0) {
+            if(!game_lists::save()) {settings::request_save(); repeat.reset(); continue;}
             repeat.reset();
             input::hub.clear_events();
             power::menu(false);
             storage::error[0]=0;
-            if(storage::load(selected-1,rom_data,rom_bytes)) {
-                run_game();
+            if(storage::load(size_t(game),rom_data,rom_bytes)) {
+                run_game(game);
             }
+            selected=game_lists::position(game)+1; position=selected;
             input::hub.clear_events();
             power::menu(true);
             opened=to_ms_since_boot(get_absolute_time());
             menu::enter(opened);
         }
         const auto prepare_started=time_us_32();
-        menu::select(selected-1);
+        menu::select(game_lists::game(selected-1));
         menu::timing.prepare_us=time_us_32()-prepare_started;
         menu::timing.prepare_max_us=std::max(menu::timing.prepare_max_us,menu::timing.prepare_us);
         position+=(selected-position)*0.3f;
@@ -247,6 +263,7 @@ int main() {
         menu::timing.frame_us=time_us_32()-prepare_started;
         menu::timing.frame_max_us=std::max(menu::timing.frame_max_us,menu::timing.frame_us);
         ++menu::timing.frames;
+        game_lists::idle(now,keys.held || keys.pressed || position!=selected);
         const auto prefetch_started=time_us_32();
         if(!usb::disk_requested && !usb::boot_requested && !usb::rescan_requested && !power::pending() &&
            menu::load_current_cover()) {

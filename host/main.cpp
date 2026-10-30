@@ -1,5 +1,6 @@
 #include "runtime.hpp"
 #include "library.hpp"
+#include "game_lists.hpp"
 #include "menu.hpp"
 #include "menu_repeat.hpp"
 #include "settings.hpp"
@@ -52,6 +53,7 @@ void set_disk_state(disk_ui::State state) {
 }
 void enter_disk() {
     flush_state();
+    game_lists::close();
     // Entering MSC reboots the badge. An explicit "continue without saving"
     // must discard session-only edits, just as loading the saved State would.
     storage::config=configuration::baseline; configuration::sync();
@@ -85,6 +87,12 @@ std::string value(const std::string &key) {
     if(key=="page") return std::to_string(static_cast<int>(settings::page()));
     if(key=="selected") return std::to_string(selected);
     if(key=="count") return std::to_string(storage::count);
+    if(key=="list") return std::to_string(unsigned(game_lists::view()));
+    if(key=="list_count") return std::to_string(game_lists::count());
+    if(key=="game_index") return std::to_string(game_lists::game(selected-1));
+    if(key=="favorite") return std::to_string(game_lists::favorite(size_t(game_lists::game(selected-1))));
+    if(key=="lists_pending") return std::to_string(game_lists::pending());
+    if(key=="lists_sram") return std::to_string(game_lists::session_bytes());
     if(key=="indexed") return std::to_string(storage::indexed());
     if(key=="first_game") return storage::count?storage::entries[0].name:"none";
     if(key=="brightness") return std::to_string(storage::config.brightness);
@@ -187,21 +195,28 @@ void game_frame() {
     } catch(...) {callback_error=std::current_exception(); running=false;}
 }
 void game_message(const char *text) {std::printf("NES: %s\n",text);}
-void run_game() {
+static uint8_t game_timing=0;
+void game_started() {
+    game_lists::started();
+    const auto now=uint32_t(micros());
+    if(game_timing==1) clock.reset(now,1662607,341*312*5,16);
+    else if(game_timing==3) clock.reset(now,1773448,341*312,3);
+    else clock.reset(now,1789773,341*262,3);
+}
+void run_game(int index) {
     const uint8_t *data=nullptr; size_t bytes=0;
-    if(!storage::load(selected-1,data,bytes)) return;
+    if(!storage::load(size_t(index),data,bytes)) return;
     nes::Cartridge cartridge; const char *error=nullptr;
     if(!nes::inspect(data,bytes,cartridge,&error)) {
         std::snprintf(storage::error,sizeof(storage::error),"%s",error?error:"Unsupported ROM"); return;
     }
-    const auto now=uint32_t(micros());
-    if(cartridge.timing==1) clock.reset(now,1662607,341*312*5,16);
-    else if(cartridge.timing==3) clock.reset(now,1773448,341*312,3);
-    else clock.reset(now,1789773,341*262,3);
+    if(!menu::suspend(index)) return;
+    game_timing=cartridge.timing;
     screen.fill(0); playing=true; game_frames=0;
-    const nes::Host host{safe_service,game_input,game_line,game_frame,game_message};
+    const nes::Host host{safe_service,game_input,game_line,game_frame,game_message,game_started};
     const bool ok=nes::infones_adapter::run(host,data,bytes,&error);
     playing=false;
+    menu::resume();
     if(callback_error) std::rethrow_exception(callback_error);
     if(!ok) std::snprintf(storage::error,sizeof(storage::error),"%s",error?error:"Core failed");
     std::printf("HOST game ended: frames=%llu error=%s\n",static_cast<unsigned long long>(game_frames),error?error:"none");
@@ -215,14 +230,15 @@ void library_progress() {
     menu::draw_loading(screen.data(),now); show(screen.data());
 }
 void refresh_library(bool force=false) {
-    library_loading=false; menu::select(-1); storage::scan(force,library_progress);
+    library_loading=false; menu::select(-1); game_lists::view(game_lists::View::All);
+    storage::scan(force,library_progress); game_lists::refresh();
     input::hub.clear_events();
 }
 void loop(bool open_settings,bool open_disk) {
     selected=library_loading?0:storage::count?1:0; float position=float(selected);
     menu::Repeat repeat;
     uint32_t opened=micros()/1000;
-    menu::enter(opened); menu::select(selected-1);
+    menu::enter(opened); menu::select(game_lists::game(selected-1));
     input::hub.clear_events();
     if(open_settings) {selected=0; position=0; settings::open();}
     if(open_disk) enter_disk();
@@ -244,17 +260,20 @@ void loop(bool open_settings,bool open_disk) {
                 // session-only TE, rather than restoring a Settings selection.
                 display::te_sync(true); controllers::init(); devices_init();
                 refresh_library(); menu::reset_page(); selected=library_loading?0:storage::count?1:0; position=float(selected);
-                repeat.reset(); input::hub.clear_events(); menu::select(selected-1); menu::enter(now); opened=now;
+                repeat.reset(); input::hub.clear_events(); menu::enter(now); menu::select(game_lists::game(selected-1)); opened=now;
             }
             advance(); wait_until(deadline); continue;
         }
         ui::service(now); configuration::sync();
+        game_lists::refresh();
+        if(selected>menu::last_card()) {selected=menu::last_card(); position=float(selected);}
         auto snapshot=input::hub.take_menu(); bool home=input::hub.take_home();
         if(settings::active()) {
             settings::update(snapshot,home,now); settings::draw(screen.data());
             show(screen.data()); settings::after_present();
             const auto exit=settings::take_exit();
             if(exit==settings::Exit::Defaults) {
+                game_lists::close(); game_lists::open();
                 library::discard(); storage::config={}; configuration::init();
                 display::te_sync(true); display::brightness(storage::config.brightness);
                 controllers::init(); devices_init(); refresh_library(); menu::reset_page();
@@ -262,16 +281,17 @@ void loop(bool open_settings,bool open_disk) {
             }
             if(exit==settings::Exit::Rebuild) refresh_library(true);
             if(exit!=settings::Exit::None) {
-                if(exit!=settings::Exit::ResumeLibrary) {selected=0; position=0;}
+                if(exit!=settings::Exit::ResumeLibrary) {selected=exit==settings::Exit::Browse?1:0; position=float(selected);}
                 if(exit==settings::Exit::Bootsel || exit==settings::Exit::Sleep)
                     std::puts("HOST: hardware action simulated; returning to library");
-                flush_state(); repeat.reset(); menu::select(selected-1); opened=now;
+                flush_state(); repeat.reset(); menu::select(game_lists::game(selected-1)); opened=now;
                 if(exit==settings::Exit::Disk) enter_disk();
             }
         } else {
             uint8_t pressed=repeat.poll(snapshot,now); const int previous=selected;
             if(pressed&input::Previous) selected=std::max(0,selected-1);
-            if(pressed&input::Next) selected=std::min<int>(storage::count,selected+1);
+            if(pressed&input::Next) selected=std::min(menu::last_card(),selected+1);
+            menu::actions(pressed,selected,position);
             if(previous!=selected) storage::error[0]=0;
             if(selected>0 && !(pressed&(input::Previous|input::Next))) {
                 if(pressed&input::PagePrevious) menu::previous_page();
@@ -280,14 +300,19 @@ void loop(bool open_settings,bool open_disk) {
             if(menu::launch_requested(pressed)) {
                 repeat.reset();
                 if(selected==0) {settings::open(); continue;}
-                input::hub.clear_events(); storage::error[0]=0; run_game(); input::hub.clear_events();
+                const int index=game_lists::game(selected-1);
+                if(index<0) continue;
+                if(!game_lists::save()) {settings::request_save(); continue;}
+                input::hub.clear_events(); storage::error[0]=0; run_game(index); input::hub.clear_events();
+                selected=game_lists::position(index)+1; position=float(selected);
                 opened=micros()/1000; menu::enter(opened);
             }
-            menu::select(selected-1);
+            menu::select(game_lists::game(selected-1));
             position+=(selected-position)*0.3f;
             if(std::fabs(selected-position)<0.005f) position=selected;
             menu::draw(screen.data(),selected,position,uint32_t(micros()/1000)-opened,storage::error[0]?storage::error:nullptr);
             show(screen.data());
+            game_lists::idle(now,snapshot.held || snapshot.pressed || position!=selected);
             if(!menu::load_current_cover()) menu::prefetch(now,snapshot.held || snapshot.pressed);
         }
         advance(); wait_until(deadline);
@@ -316,10 +341,10 @@ void service() {
     if(keys[SDL_SCANCODE_RIGHT]) remote.dpad|=gamepad::East;
     if(keys[SDL_SCANCODE_UP]) remote.dpad|=gamepad::North;
     if(keys[SDL_SCANCODE_DOWN]) remote.dpad|=gamepad::South;
-    if(keys[SDL_SCANCODE_Z] || (!playing && keys[SDL_SCANCODE_RETURN])) remote.keys|=gamepad::KeyA;
-    if(keys[SDL_SCANCODE_X] || keys[SDL_SCANCODE_ESCAPE]) remote.keys|=gamepad::KeyB;
-    if(keys[SDL_SCANCODE_RETURN] && playing) remote.keys|=gamepad::KeyStart;
-    if(keys[SDL_SCANCODE_RSHIFT]) remote.keys|=gamepad::KeySelect;
+    if(keys[SDL_SCANCODE_Z]) remote.keys|=gamepad::KeyA;
+    if(keys[SDL_SCANCODE_X]) remote.keys|=gamepad::KeyB;
+    if(keys[SDL_SCANCODE_RETURN]) remote.keys|=gamepad::KeyStart;
+    if(keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT]) remote.keys|=gamepad::KeySelect;
     if(keys[SDL_SCANCODE_HOME]) remote.keys|=gamepad::KeyHome;
     if(!disk_mode) devices_poll(remote);
     const uint8_t local=(keys[SDL_SCANCODE_Q]?input::LocalA:0)|(keys[SDL_SCANCODE_W]?input::LocalB:0)|
@@ -343,8 +368,7 @@ int main(int argc,char **argv) {
             else if(arg=="--disk") disk=true;
             else if(arg=="--help") {
                 std::puts("tufty_preview --images DIR [--settings | --disk] [--headless] [--script FILE] [--frames N]\n"
-                    "Arrows: navigate / NES D-pad; Z/Enter: confirm; X/Escape: back\n"
-                    "Game: Z=A X=B Enter=Start Right Shift=Select Home=exit\n"
+                    "Gamepad: Arrows=D-pad Z=A X=B Enter=Start Left/Right Shift=Select Home=exit\n"
                     "Local fallback: Q/W/E=A/B/C I/K=Up/Down H=Home\n"
                     "F2: BLE / serial / disconnected; F12: preview.bmp\n"
                     "Disk preview: F3=ready F4=transferring F5=invalid FAT F6=I/O error F7=eject\n"
@@ -382,9 +406,10 @@ int main(int argc,char **argv) {
             if(saved!=configuration::SaveResult::Saved) throw std::runtime_error("Host settings could not be saved on exit");
         }
         if(!library::save()) throw std::runtime_error("Host game order could not be saved on exit");
+        if(!game_lists::save()) throw std::runtime_error("Host game lists could not be saved on exit");
         flush_state();
     } catch(const std::exception &e) {std::cerr<<"Host preview: "<<e.what()<<'\n'; result=1;}
-    unmount_flash();
+    game_lists::close(); unmount_flash();
     if(texture) SDL_DestroyTexture(texture);
     if(renderer) SDL_DestroyRenderer(renderer);
     if(window) SDL_DestroyWindow(window);

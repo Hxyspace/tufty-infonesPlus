@@ -16,8 +16,12 @@ add_executable(protocol_tests protocol_tests.cpp ${runtime}/protocol.cpp ${runti
 add_test(NAME protocol COMMAND protocol_tests)
 add_executable(input_tests input_tests.cpp ${runtime}/gamepad.cpp ${runtime}/input.cpp)
 add_test(NAME input COMMAND input_tests)
+add_executable(game_lists_tests game_lists_tests.cpp ${runtime}/game_lists.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp
+  ${runtime}/input.cpp ${runtime}/gamepad.cpp battery_stub.cpp ${root}/lib/cjson/cJSON.c)
+add_test(NAME game_lists COMMAND game_lists_tests)
 add_executable(settings_tests settings_tests.cpp ${runtime}/settings.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp
-  ${runtime}/input.cpp ${runtime}/gamepad.cpp ${runtime}/controllers.cpp ${runtime}/protocol.cpp battery_stub.cpp)
+  ${runtime}/input.cpp ${runtime}/gamepad.cpp ${runtime}/controllers.cpp ${runtime}/protocol.cpp battery_stub.cpp
+  ${runtime}/game_lists.cpp ${root}/lib/cjson/cJSON.c)
 target_link_libraries(settings_tests PRIVATE tufty_version)
 add_test(NAME settings COMMAND settings_tests)
 add_executable(bluetooth_manager_tests bluetooth_manager_tests.cpp ${runtime}/bluetooth_manager.cpp)
@@ -52,7 +56,7 @@ target_include_directories(usb_disk_tests BEFORE PRIVATE ${CMAKE_CURRENT_LIST_DI
 add_test(NAME usb_disk COMMAND usb_disk_tests)
 add_test(NAME usb_disk_eject COMMAND usb_disk_tests eject)
 add_test(NAME usb_disk_marker_failure COMMAND usb_disk_tests marker_failure)
-add_executable(storage_tests storage_tests.cpp ${runtime}/storage.cpp ${runtime}/library.cpp ${runtime}/gamepad.cpp ${runtime}/fat_disk.cpp
+add_executable(storage_tests storage_tests.cpp ${runtime}/storage.cpp ${runtime}/library.cpp ${runtime}/game_lists.cpp ${runtime}/gamepad.cpp ${runtime}/fat_disk.cpp
   ${runtime}/rom_store.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp ${runtime}/input.cpp
   ${CMAKE_CURRENT_LIST_DIR}/battery_stub.cpp
   ${fatfs}/ff.c ${fatfs}/ffunicode.c

@@ -1,5 +1,6 @@
 #include "storage.hpp"
 #include "library.hpp"
+#include "game_lists.hpp"
 #include "display.hpp"
 #include "fat_disk.hpp"
 #include "core_api/cartridge.hpp"
@@ -257,6 +258,24 @@ int main(int argc,char **argv) {
         assert(storage::indexed() && names()=="A.nes,B.nes,C.nes,D.nes,Game2.nes,Game10.nes");
         assert(std::string(storage::description(0))=="First\n\nSecond");
         assert(progress_frames && !changed() && !library::custom_order());
+        if(scenario=="library") {
+            assert(game_lists::open());
+            assert(game_lists::toggle(2) && game_lists::toggle(0) && game_lists::save());
+            game_lists::close(); assert(game_lists::open());
+            game_lists::view(game_lists::View::Favorites);
+            assert(game_lists::count()==2 && game_lists::game(0)==0 && game_lists::game(1)==2);
+            assert(library::move_to_front(3)); game_lists::refresh();
+            assert(game_lists::game(0)==1 && game_lists::game(1)==3);
+            library::discard(); game_lists::refresh();
+            assert(game_lists::game(0)==0 && game_lists::game(1)==2);
+            alignas(8) uint8_t workspace[16*1024];
+            assert(game_lists::suspend(workspace,sizeof workspace,3));
+            game_lists::started(); assert(!game_lists::pending() && !game_lists::session_bytes());
+            assert(game_lists::resume()); game_lists::close(); assert(game_lists::open());
+            game_lists::view(game_lists::View::Recent);
+            assert(game_lists::count()==1 && game_lists::game(0)==3);
+            game_lists::close();
+        }
         menu::load_art();
         std::vector<uint16_t> loading(320*240+16,0x1234);
         const auto services=service_calls;

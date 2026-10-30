@@ -9,7 +9,8 @@ uint8_t menu_map(uint8_t nes) {
         ((nes&gamepad::Right)?Next:0)|
         ((nes&gamepad::Up)?PagePrevious:0)|
         ((nes&gamepad::Down)?PageNext:0)|
-        ((nes&gamepad::A)?Confirm:0)|((nes&gamepad::B)?Back:0);
+        ((nes&gamepad::A)?Confirm:0)|((nes&gamepad::B)?Back:0)|
+        ((nes&gamepad::Start)?Favorite:0)|((nes&gamepad::Select)?List:0);
 }
 }
 const char *name(Source s) {return s==Source::Serial?"serial":s==Source::Ble?"ble":"none";}

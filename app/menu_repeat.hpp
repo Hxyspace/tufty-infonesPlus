@@ -13,12 +13,13 @@ public:
     uint8_t poll(const input::Snapshot &snapshot,uint32_t now) {
         auto keys=snapshot;
         if(epoch!=keys.epoch) {reset(); epoch=keys.epoch;}
-        const uint8_t axes[]={input::Previous|input::Next,input::PagePrevious|input::PageNext};
-        for(unsigned axis=0;axis<2;++axis) {
+        const uint8_t axes[]={input::Previous|input::Next,input::PagePrevious|input::PageNext,input::Favorite|input::List};
+        for(unsigned axis=0;axis<3;++axis) {
             const auto mask=axes[axis];
             if(((keys.held|keys.pressed)&mask)==mask) {
                 conflicted|=mask; keys.held&=~mask; keys.pressed&=~mask;
-                timers[axis*2]={}; timers[axis*2+1]={};
+                if(axis<2) {timers[axis*2]={}; timers[axis*2+1]={};}
+                else keys.pressed&=~input::Confirm;
             } else if(conflicted&mask) {
                 // A remaining held direction starts a fresh delay, not a new edge.
                 keys.pressed&=~mask; conflicted&=~mask;
@@ -42,6 +43,6 @@ public:
     }
 };
 inline bool launch_requested(uint8_t pressed) {
-    return (pressed&input::Confirm) && !(pressed&(input::Previous|input::Next));
+    return (pressed&input::Confirm) && !(pressed&(input::Previous|input::Next|input::Favorite|input::List));
 }
 }

@@ -51,6 +51,7 @@ bool run(const Host &host,const std::uint8_t *rom,std::size_t bytes,const char *
   running=true;active=&host;
   bool ok=load(rom,bytes,error);
   if(ok){
+    if(host.started)host.started();
     InfoNES_Cycle();ok=!infones::memory::failed;
     if(!ok && error)*error="Cartridge runtime allocation failed";
     unload();
