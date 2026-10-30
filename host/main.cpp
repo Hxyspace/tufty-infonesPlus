@@ -172,7 +172,7 @@ void safe_service() {
     catch(...) {callback_error=std::current_exception(); running=false;}
 }
 void game_input(uint8_t &a,uint8_t &b,bool &quit) {
-    safe_service(); a=input::hub.nes(storage::config.swap_ab); b=0;
+    safe_service(); a=input::hub.nes(storage::config.swap_ab,uint32_t(micros()/1000)); b=0;
     quit=!running || input::hub.home();
 }
 void game_line(unsigned y,const uint16_t *pixels,uint8_t mask,bool pal) {

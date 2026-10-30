@@ -89,11 +89,13 @@ void Hub::local(uint8_t keys) {
         local_pressed|=menu.held&~prior; local_released|=prior&~menu.held;
     }
 }
-uint8_t Hub::nes(bool swap_ab) const {
+uint8_t Hub::nes(bool swap_ab,uint32_t now_ms) const {
     uint8_t keys=remote_keys()|
         ((local_keys&LocalA)?gamepad::Left:0)|((local_keys&LocalB)?gamepad::A:0)|
         ((local_keys&LocalC)?gamepad::Right:0)|((local_keys&LocalUp)?gamepad::Up:0)|
         ((local_keys&LocalDown)?gamepad::Down:0);
+    int i=index(active);
+    if(i>=0 && ports[i].armed) keys|=ports[i].receiver->turbo(now_ms);
     return swap_ab?uint8_t((keys&~3)|((keys&1)<<1)|((keys&2)>>1)):keys;
 }
 Snapshot Hub::take_menu() {

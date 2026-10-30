@@ -38,6 +38,31 @@ int main() {
         assert(navigation.nes()==(hat==0?Up:hat==2?Right:hat==4?Down:Left));
         send(remote); navigation.take_menu();
     }
+    // X/Y repeat from elapsed time even when a HID controller only sends changes.
+    send(remote,0x18,6); // X+Y while holding left.
+    assert(navigation.take_menu().pressed==input::Previous);
+    for(uint32_t now=0;now<992;++now) {
+        const uint8_t pulse=(now/62)%2?0:A|B;
+        assert(navigation.nes(false,now)==(Left|pulse));
+        assert(!navigation.take_menu().pressed); // No generated confirm/back edges.
+    }
+    send(remote,0x08); // X alone.
+    assert(navigation.nes(false,124)==A && navigation.nes(true,124)==B);
+    assert(!navigation.nes(false,186));
+    send(remote,0x10); // Y alone.
+    assert(navigation.nes(false,248)==B && navigation.nes(true,248)==A);
+    send(remote,0x1b); // Ordinary A/B take priority over turbo's off phase.
+    assert(navigation.nes(false,186)==(A|B));
+    send(remote,0x08,255,125); // Repeated reports do not restart the pulse phase.
+    send(remote,0x08,255,186); assert(!navigation.nes(false,186));
+    navigation.local(input::LocalB); assert(navigation.nes(false,186)==A);
+    navigation.local(0); remote.release(); assert(!navigation.nes(false,248));
+    send(remote,0x18); assert(!navigation.nes(false,248)); // Held reconnect is blocked.
+    send(remote); send(remote,0x18); assert(navigation.nes(false,248)==(A|B));
+    navigation.enable(Source::Ble,false); assert(!navigation.nes(false,248));
+    navigation.enable(Source::Ble,true); send(remote); send(remote,0x18);
+    remote.receive(nullptr,0); assert(!navigation.nes(false,248));
+    send(remote); navigation.take_menu();
     menu::Repeat repeat;
     input::Snapshot held{input::Next,input::Next,0};
     assert(repeat.poll(held,100)==input::Next);

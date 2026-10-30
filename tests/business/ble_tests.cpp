@@ -474,10 +474,16 @@ int main(int argc,char **argv) {
             ble::shutdown(); return 0;
         }
         if(!std::strcmp(argv[1],"physical_layout")) {
+            controllers::init();
             assert(btstack_hid_get_report_size_for_id(4,HID_REPORT_TYPE_INPUT,map,sizeof(map))==10);
             assert(btstack_hid_get_report_size_for_id(3,HID_REPORT_TYPE_INPUT,map,sizeof(map))==2);
             event({BTSTACK_EVENT_STATE,1,HCI_STATE_WORKING}); advertise(0x1812,0); linked(); ready();
             assert(reads==1 && last_read_id==4 && !disconnects);
+            report(255); // Arm the shared input path.
+            report(255,0x18); // Physical X/Y continue without new BLE notifications.
+            assert(input::hub.nes(false,0)==(gamepad::A|gamepad::B));
+            assert(!input::hub.nes(false,62));
+            assert(input::hub.nes(false,124)==(gamepad::A|gamepad::B));
             report(0xa2,1,0x10); // High hat nibble is padding; low nibble means right.
             assert(ble::buttons()==(gamepad::Right|gamepad::A) && ble::home());
             // Consumer-control report 3 must neither become keys nor release them.

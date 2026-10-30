@@ -75,7 +75,7 @@ void tufty_service() {
 static void game_input(uint8_t &p1,uint8_t &p2,bool &quit) {
     tufty_service();
     sample_local();
-    p1=input::hub.nes(storage::config.swap_ab);p2=0;
+    p1=input::hub.nes(storage::config.swap_ab,to_ms_since_boot(get_absolute_time()));p2=0;
     quit=input::hub.home() || usb::disk_requested || usb::boot_requested || usb::rescan_requested || power::pending();
 }
 static void __not_in_flash_func(game_line)(unsigned y,const uint16_t *pixels,uint8_t mask,bool pal) {

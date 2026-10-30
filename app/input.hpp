@@ -18,7 +18,7 @@ public:
     SourceStatus status(Source source) const;
     Source active_remote() const {return active;}
     void local(uint8_t keys);
-    uint8_t nes(bool swap_ab=false) const;
+    uint8_t nes(bool swap_ab=false,uint32_t now_ms=0) const;
     bool home() const;
     bool take_home(); // One application-exit event per press, independent of the neutral barrier.
     bool neutral() const {return !local_keys && !remote_keys() && !home();}
