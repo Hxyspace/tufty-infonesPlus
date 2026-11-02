@@ -6,8 +6,8 @@
 
 - CPU、PPU、APU 与卡带 Mapper 模拟，支持 NTSC、PAL、Dendy 时序。
 - 双核显示：模拟与应用运行在 core0，LCD 传输运行在 core1；游戏帧使用 SRAM，菜单帧使用 PSRAM，通过 PIO/DMA 输出。
-- 带顺序、英文标题和分页简介的游戏索引，58×80 封面与自定义背景，通过 USB 磁盘管理游戏和素材。
-- 本机按键、XTARK / 安卓 HID 手柄、USB 串口 TGP v3，以及串口和 BLE TGP v1/v2。
+- 支持排序、收藏和最近游玩的游戏库，英文标题、分页简介、58×80 封面与自定义背景，通过 USB 磁盘管理游戏和素材。
+- 本机按键、XTARK / 安卓 HID 手柄、USB 串口 TGP v3，以及串口和 BLE TGP v1/v2，支持 X/Y 连发 A/B。
 - 图形 Settings，支持 BLE 设备发现与允许列表、亮度调节、自动休眠与按键唤醒。
 
 仅适配 Tufty2350。公共加载入口支持 52 个 Mapper 编号的受限板型布局，以及受限 NES 2.0 格式；编号与板型限制见[核心契约](docs/core-contract.md#卡带支持范围)。固件没有音频设备输出，不保存游戏进度或电池 SRAM；FDS、NSF 和特殊外设不在支持范围内。
@@ -19,7 +19,7 @@
 3. 通过游戏库最左侧的 `Settings → System → USB disk mode` 或连续双 Reset 进入磁盘模式，将自己的 `.nes` 文件放入磁盘 `roms/` 目录，安全弹出后返回菜单。
 4. 连接手柄，选择游戏并启动。连接方法和素材格式见[使用指南](docs/usage.md)。
 
-Android 手机可使用 [Tufty Pad APK](https://github.com/Hxyspace/tufty-infonesPlus/releases) 作为蓝牙手柄。
+Android 手机可使用 [Tufty Pad APK](https://github.com/Hxyspace/tufty-infonesPlus/releases/download/v0.1.0-beta.1/tufty-pad-1.0.0.apk) 作为蓝牙手柄。
 
 设备构建：
 
