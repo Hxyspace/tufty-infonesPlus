@@ -664,4 +664,52 @@ int main() {
     press(input::Next); present(); assert(frame==current_sample); // Wrap to Original without applying.
     press(input::Previous); press(input::Confirm);
     assert(storage::config.palette==presentation::Palette::BmfFinal3 && !configuration::changed());
+    // Controller testing uses raw normalized input, never menu mappings/turbo.
+    storage::config.ble_enabled=true; storage::config.swap_ab=true; configuration::init();
+    input::hub.local(0); input::hub.attach(input::Source::Ble,ble_pad);
+    input::hub.enable(input::Source::Ble,true);
+    gamepad::ControllerState pad;
+    const auto tick=[&](uint32_t ms=1) {
+        now+=ms; dispatch_input(now);
+    };
+    const auto report=[&](const gamepad::ControllerState &state) {ble_pad.update(state,now); tick();};
+    pad.keys=gamepad::KeyA; report(pad);
+    root(); enter(1,settings::Page::Control); enter(1,settings::Page::ControllerTest);
+    tick(2000); assert(settings::page()==settings::Page::ControllerTest); // Opening A must be released first.
+    report({}); snapshot("gamepad-idle"); present();
+    const auto idle_pad=frame;
+    pad={}; pad.left_x=255; report(pad); present();
+    assert(frame[90*320+49]==idle_pad[90*320+49]); // Stick does not light the physical D-pad.
+    assert(frame[174*320+135]==ui::cyan); // Positive endpoint reaches the circle, not a smaller square.
+    pad.left_x=0; report(pad); present(); assert(frame[174*320+75]==ui::cyan);
+    pad.left_x=255;
+    pad.dpad=gamepad::North|gamepad::West;
+    pad.keys=gamepad::KeyX|gamepad::KeyY|gamepad::KeyLB|gamepad::KeyRT|gamepad::KeyL3|gamepad::KeyR3|gamepad::KeyStart|gamepad::KeySelect;
+    pad.right_x=0; pad.right_y=255; pad.lt=180; pad.rt=70;
+    report(pad); snapshot("gamepad-active"); present();
+    assert(frame[90*320+49]==ui::cyan && frame[110*320+27]==ui::cyan);
+    tick(2000); assert(settings::page()==settings::Page::ControllerTest); // X/Y and Start/Select don't navigate or turbo.
+    report({}); pad={}; pad.keys=gamepad::KeyB; report(pad); tick(600);
+    snapshot("gamepad-exit-hold"); assert(settings::page()==settings::Page::ControllerTest);
+    report({}); tick(1500); assert(settings::page()==settings::Page::ControllerTest); // A short B only tests B.
+    report(pad); tick(1199); assert(settings::page()==settings::Page::ControllerTest);
+    tick(1); assert(settings::page()==settings::Page::Control && settings::focus()==1);
+    tick(2000); assert(settings::page()==settings::Page::Control); // Held exit cannot reopen the test.
+    report({}); enter(1,settings::Page::ControllerTest);
+    pad.keys=gamepad::KeyA; report(pad); tick(900);
+    pad.keys=gamepad::KeyB; report(pad); tick(400);
+    assert(settings::page()==settings::Page::ControllerTest); // A and B holds cannot be added together.
+    ble_pad.release(); tick(); snapshot("gamepad-local"); tick(2000);
+    assert(settings::page()==settings::Page::ControllerTest);
+    report(pad); tick(2000); assert(settings::page()==settings::Page::ControllerTest); // Reconnect requires release.
+    report({}); now=0xffffff00u; pad.keys=gamepad::KeyA; report(pad); tick(1200);
+    assert(settings::page()==settings::Page::Control); // Hold timer wraps safely.
+    report({}); ble_pad.release(); tick(); enter(1,settings::Page::ControllerTest);
+    input::hub.local(input::LocalUp|input::LocalB); tick(); present();
+    assert(frame[90*320+49]==ui::cyan && frame[137*320+260]==ui::rgb(76,218,151));
+    tick(1200);
+    assert(settings::page()==settings::Page::Control); // Local uses the same logical A hold.
+    input::hub.local(0); tick(); enter(1,settings::Page::ControllerTest);
+    home(); present(); assert(settings::take_exit()==settings::Exit::Library); // Global Home remains available.
+    assert(!configuration::changed());
 }

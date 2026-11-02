@@ -4,7 +4,7 @@
 #include <cstdint>
 
 namespace settings {
-enum class Page {Root,Display,Control,Bluetooth,Search,Device,Allowed,AllowedDevice,Mode,Power,System,About,GameLibrary,GameOrder,LibraryView,Favorites,Palette,Count};
+enum class Page {Root,Display,Control,Bluetooth,Search,Device,Allowed,AllowedDevice,Mode,Power,System,About,GameLibrary,GameOrder,LibraryView,Favorites,Palette,ControllerTest,Count};
 enum class Exit {None,Library,Sleep,Disk,Bootsel,ResumeLibrary,Stay,Rebuild,Defaults,Browse};
 void open();
 bool active();

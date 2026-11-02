@@ -645,6 +645,51 @@ def main():
 41 expect view library
 42 quit
 """)
+    run("gamepad-test", """
+0 source serial
+2 press Down
+3 release Down
+5 press Z
+6 release Z
+7 expect page 2
+8 press Down
+9 release Down
+17 press Z
+100 expect page 17
+100 release Z
+102 shot gamepad-idle.bmp
+104 press X
+110 shot gamepad-button.bmp
+112 release X
+114 expect page 17
+116 press Return
+117 release Return
+118 press Left Shift
+119 release Left Shift
+120 press Left
+120 press Up
+122 shot gamepad-diagonal.bmp
+123 release Left
+123 release Up
+124 expect page 17
+125 press X
+130 expect page 17
+220 expect page 2
+222 release X
+225 expect page 2
+230 press Z
+232 release Z
+233 expect page 17
+235 source none
+236 shot gamepad-local.bmp
+238 press W
+330 expect page 2
+332 release W
+335 press H
+336 release H
+340 expect view library
+341 quit
+""", settings=True)
     for image in work.glob("*.bmp"):
         data = image.read_bytes()
         assert data[:2] == b"BM" and struct.unpack_from("<ii", data, 18) == (320, 240)

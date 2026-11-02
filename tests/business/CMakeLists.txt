@@ -19,7 +19,7 @@ add_test(NAME input COMMAND input_tests)
 add_executable(game_lists_tests game_lists_tests.cpp ${runtime}/game_lists.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp
   ${runtime}/input.cpp ${runtime}/gamepad.cpp battery_stub.cpp ${root}/lib/cjson/cJSON.c)
 add_test(NAME game_lists COMMAND game_lists_tests)
-add_executable(settings_tests settings_tests.cpp ${runtime}/settings.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp
+add_executable(settings_tests settings_tests.cpp ${runtime}/settings.cpp ${runtime}/gamepad_test.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp
   ${runtime}/input.cpp ${runtime}/gamepad.cpp ${runtime}/controllers.cpp ${runtime}/protocol.cpp battery_stub.cpp
   ${runtime}/game_lists.cpp ${root}/lib/cjson/cJSON.c)
 target_link_libraries(settings_tests PRIVATE tufty_version)

@@ -1,6 +1,7 @@
 #include "settings.hpp"
 #include "library.hpp"
 #include "game_lists.hpp"
+#include "gamepad_test.hpp"
 #include "configuration.hpp"
 #include "controllers.hpp"
 #include "ble.hpp"
@@ -26,6 +27,7 @@ enum class Dialog {None,Confirm,SaveError,Brightness,SleepTime,ControllerId};
 Page current=Page::Root;
 presentation::Palette palette_draft=presentation::Palette::Current;
 bool palette_confirmed=false;
+gamepad_test::View controller_test;
 unsigned focuses[unsigned(Page::Count)]{};
 unsigned first_rows[unsigned(Page::Count)]{};
 constexpr unsigned visible_rows=5;
@@ -58,7 +60,7 @@ Row rows[17];
 unsigned row_count=0;
 char footer[96]{};
 const char *titles[]={"Settings","Display","Control","Bluetooth","Search gamepads","Gamepad",
-    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front","View list","Favorites","NES palette"};
+    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front","View list","Favorites","NES palette","Gamepad test"};
 static_assert(sizeof titles/sizeof *titles==unsigned(Page::Count));
 constexpr Page categories[]={Page::Display,Page::Control,Page::Power,Page::System,Page::About};
 constexpr ui::Icon category_icons[]={ui::Icon::Display,ui::Icon::Control,ui::Icon::Power,ui::Icon::System,ui::Icon::About};
@@ -170,6 +172,7 @@ void model(uint32_t now=0,Page view=Page::Count) {
     case Page::Control:
         marked("Bluetooth",cfg.ble_enabled);
         rows[row_count-1].arrow=true;
+        add("Gamepad test","",true);
         marked("Serial pad",cfg.serial_enabled); marked("Swap A/B",cfg.swap_ab);
         std::snprintf(footer,sizeof(footer),"Active input: %s",input::name(input::hub.active_remote())); break;
     case Page::Bluetooth:
@@ -239,7 +242,7 @@ void model(uint32_t now=0,Page view=Page::Count) {
         if(battery::reading().valid) std::snprintf(value,sizeof(value),"~%u%%",battery::reading().percent);
         else std::strcpy(value,"--");
         add("Battery estimate",value); break;
-    case Page::Palette: case Page::Count: break;
+    case Page::ControllerTest: case Page::Palette: case Page::Count: break;
     }
     auto &focus=focuses[unsigned(view)];
     focus=std::min(focus,row_count?row_count-1:0);
@@ -255,6 +258,7 @@ void back() {
     switch(current) {
     case Page::Root: request_exit(Exit::Library); break;
     case Page::Bluetooth: go(Page::Control); break;
+    case Page::ControllerTest: go(Page::Control); break;
     case Page::Palette: go(Page::Display); break;
     case Page::Search: stop_search(); go(Page::Bluetooth); break;
     case Page::Device: go(Page::Search); break;
@@ -315,7 +319,8 @@ void activate(uint32_t now) {
         } break;
     case Page::Control: {
         if(row==0) go(Page::Bluetooth);
-        else if(row==1) {
+        else if(row==1) {go(Page::ControllerTest); controller_test.open(now);}
+        else if(row==2) {
             if(cfg.serial_enabled && input::hub.active_remote()==input::Source::Serial) ask(Confirm::DisableSerial,"Disable active serial pad?");
             else {controllers::set_enabled(input::Source::Serial,!cfg.serial_enabled); barrier();}
         } else configuration::swap(!cfg.swap_ab);
@@ -504,6 +509,10 @@ void update(input::Snapshot keys,bool home,uint32_t now) {
         return;
     }
     if(saving || waiting_release) return;
+    if(current==Page::ControllerTest && dialog==Dialog::None && !transitioning()) {
+        if(controller_test.update(now)) go(Page::Control);
+        return;
+    }
     if(keys.epoch!=input_epoch) {barrier(); return;}
     if(keys.pressed&input::Back) {back(); return;}
     const auto pressed=repeat.poll(keys,now);
@@ -631,6 +640,9 @@ void after_present() {
     }
 }
 void draw(uint16_t *out) {
+    if(current==Page::ControllerTest && dialog==Dialog::None && !transitioning()) {
+        controller_test.draw(out); return;
+    }
     // Root is the category-column focus; its selected category is previewed
     // with exactly the same model as the active property column.
     const bool sidebar_focus=current==Page::Root;
