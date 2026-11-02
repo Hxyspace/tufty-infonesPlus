@@ -1,4 +1,5 @@
 #pragma once
+#include "nes_palette.hpp"
 #include <cstdint>
 #include "game_frame.hpp"
 namespace display {
@@ -14,7 +15,7 @@ presentation::GameFrame &game_buffer();
 presentation::GameFrame &present_game();
 // core0 starts only after its library UI request completed; ends before
 // requesting a UI frame. That completed UI boundary drains stale game work.
-void begin_game();
+void begin_game(presentation::Palette palette=presentation::Palette::Current);
 void end_game();
 void pause(bool enabled);
 bool paused();

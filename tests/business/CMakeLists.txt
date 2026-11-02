@@ -80,7 +80,7 @@ add_test(NAME state_invalid_idle COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURREN
 add_test(NAME state_ble COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 ble)
 add_test(NAME state_invalid_ble_peer COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 bad_peer)
 add_test(NAME state_invalid_ble_type COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 bad_ble)
-foreach(scenario policy bad_policy duplicate_peer gamepad_override gamepad_no_state)
+foreach(scenario policy bad_policy duplicate_peer gamepad_override gamepad_no_state bad_palette bad_palette_type)
   add_test(NAME state_${scenario} COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 ${scenario})
 endforeach()
 add_test(NAME host_sender COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/test_sender.py)

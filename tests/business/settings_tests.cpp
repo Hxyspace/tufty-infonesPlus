@@ -194,7 +194,7 @@ int main() {
     assert(bright==80);
     input::hub.local(0); settings::update(input::hub.take_menu(),false,++now);
     snapshot("display");
-    settings::draw(frame.data()); assert(frame[110*320+285]==ui::rgb(70,220,100));
+    settings::draw(frame.data()); assert(frame[134*320+285]==ui::rgb(70,220,100));
     focus(0); press(input::Previous); // Left changes panes, never brightness.
     assert(bright==80 && settings::page()==settings::Page::Root);
     press(input::Next); assert(settings::page()==settings::Page::Display);
@@ -207,14 +207,14 @@ int main() {
     back(); assert(settings::page()==settings::Page::Display);
     back(); assert(saves==0); back(); assert(saves==0 && settings::transitioning());
     present(); assert(saves==1 && settings::take_exit()==settings::Exit::Library && !usb::dirty);
-    root(); enter(0,settings::Page::Display); focus(1);
+    root(); enter(0,settings::Page::Display); focus(2);
     press(input::Next); assert(requested_te); // Right does not toggle TE.
     press(input::Previous); assert(requested_te && settings::page()==settings::Page::Root);
-    press(input::Next); assert(settings::focus()==1);
+    press(input::Next); assert(settings::focus()==2);
     press(input::Confirm);
     assert(!requested_te && !configuration::changed());
     press(input::Next); assert(!requested_te);
-    settings::draw(frame.data()); assert(frame[110*320+285]==ui::rgb(100,100,100));
+    settings::draw(frame.data()); assert(frame[134*320+285]==ui::rgb(100,100,100));
     back(); back(); present();
     assert(saves==1 && settings::take_exit()==settings::Exit::Library);
     // Failed writes preserve runtime values and baseline; cancellation never silently saves.
@@ -608,4 +608,54 @@ int main() {
     assert(frame[74*320+309]==ui::rgb(16,20,24)); // No scrollbar for a short list.
     storage::count=0; present();
     assert(settings::focus()==0 && frame[80*320+15]!=ui::cyan);
+    // Palette browsing is a draft: draw performs no I/O, Back/Home discard it,
+    // Confirm joins the existing save-on-exit transaction.
+    storage::config.palette=presentation::Palette::Current; configuration::init();
+    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Palette);
+    snapshot("palette-current"); present(); const auto current_sample=frame;
+    assert(frame[64*320+128]==ui::cyan);
+    press(input::Next); snapshot("palette-unsaturated"); present();
+    assert(frame!=current_sample && !configuration::changed());
+    assert(storage::config.palette==presentation::Palette::Current);
+    press(input::Next); snapshot("palette-smooth-v2"); back();
+    assert(settings::page()==settings::Page::Display && !configuration::changed());
+    enter(1,settings::Page::Palette); press(input::Next); press(input::PagePrevious);
+    assert(settings::title_selected()); snapshot("palette-title"); present();
+    assert(frame[64*320+128]==ui::dim);
+    const auto title_sample=frame;
+    press(input::Next); present(); assert(frame==title_sample); // Title focus cannot change colors.
+    press(input::Confirm);
+    assert(settings::page()==settings::Page::Display && !configuration::changed());
+    enter(1,settings::Page::Palette); press(input::Next); press(input::Confirm);
+    assert(settings::page()==settings::Page::Palette && configuration::changed());
+    assert(storage::config.palette==presentation::Palette::Unsaturated);
+    snapshot("palette-applied"); present(); assert(frame[64*320+128]==ui::rgb(70,220,100));
+    press(input::PagePrevious); present(); assert(frame[64*320+128]==ui::dim);
+    press(input::PageNext); present(); assert(frame[64*320+128]==ui::cyan);
+    press(input::Next); press(input::Previous); present();
+    assert(frame[64*320+128]==ui::cyan); // Returning to the applied value isn't another confirmation.
+    const auto palette_saves=saves; home(); present();
+    assert(settings::take_exit()==settings::Exit::Library && saves==palette_saves+1);
+    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Palette); present();
+    const auto selected_sample=frame;
+    assert(frame[64*320+128]==ui::cyan);
+    press(input::Next); home(); present();
+    assert(settings::take_exit()==settings::Exit::Library && saves==palette_saves+1);
+    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Palette); present();
+    assert(frame==selected_sample);
+    press(input::Next); press(input::Confirm); save_ok=false; home(); present();
+    assert(settings::active() && configuration::changed() && storage::config.palette==presentation::Palette::SmoothV2);
+    save_ok=true; press(input::Confirm); present();
+    assert(settings::take_exit()==settings::Exit::Library && !configuration::changed());
+    for(auto preset:{presentation::Palette::Sony,presentation::Palette::Nintendo,presentation::Palette::BmfFinal3}) {
+        root(); enter(0,settings::Page::Display); enter(1,settings::Page::Palette);
+        press(input::Next); snapshot(presentation::palette_id(preset)); present();
+        assert(frame[64*320+128]==ui::cyan && !configuration::changed());
+        press(input::Confirm); assert(storage::config.palette==preset);
+        home(); present(); assert(settings::take_exit()==settings::Exit::Library && !configuration::changed());
+    }
+    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Palette);
+    press(input::Next); present(); assert(frame==current_sample); // Wrap to Original without applying.
+    press(input::Previous); press(input::Confirm);
+    assert(storage::config.palette==presentation::Palette::BmfFinal3 && !configuration::changed());
 }

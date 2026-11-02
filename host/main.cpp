@@ -96,6 +96,7 @@ std::string value(const std::string &key) {
     if(key=="indexed") return std::to_string(storage::indexed());
     if(key=="first_game") return storage::count?storage::entries[0].name:"none";
     if(key=="brightness") return std::to_string(storage::config.brightness);
+    if(key=="palette") return presentation::palette_id(storage::config.palette);
     if(key=="swap") return std::to_string(storage::config.swap_ab);
     if(key=="te") return std::to_string(display::te_requested());
     if(key=="dirty") return std::to_string(configuration::changed());
@@ -183,8 +184,9 @@ void game_input(uint8_t &a,uint8_t &b,bool &quit) {
     safe_service(); a=input::hub.nes(storage::config.swap_ab,uint32_t(micros()/1000)); b=0;
     quit=!running || input::hub.home();
 }
+uint16_t game_palette[512];
 void game_line(unsigned y,const uint16_t *pixels,uint8_t mask,bool pal) {
-    for(unsigned x=0;x<256;++x) screen[y*320+x+32]=presentation::token_rgb565(presentation::pixel_token(pixels[x],mask,pal));
+    for(unsigned x=0;x<256;++x) screen[y*320+x+32]=game_palette[presentation::pixel_token(pixels[x],mask,pal)];
 }
 presentation::FrameClock clock;
 void game_frame() {
@@ -212,6 +214,7 @@ void run_game(int index) {
     }
     if(!menu::suspend(index)) return;
     game_timing=cartridge.timing;
+    for(unsigned i=0;i<512;++i) game_palette[i]=presentation::token_rgb565(i,storage::config.palette);
     screen.fill(0); playing=true; game_frames=0;
     const nes::Host host{safe_service,game_input,game_line,game_frame,game_message,game_started};
     const bool ok=nes::infones_adapter::run(host,data,bytes,&error);

@@ -29,6 +29,23 @@ int main(){
     assert(pixel_token(color,1,false)==(color&0x30));
     assert(pixel_token(color,0x20,false)==pixel_token(color,0x40,true));
   }
+  // Preset selection preserves token semantics and all emphasis combinations.
+  for(unsigned p=0;p<palette_count;++p) {
+    Palette parsed=Palette::Count; assert(parse_palette(palette_id(Palette(p)),parsed) && parsed==Palette(p));
+    for(unsigned color=0;color<64;++color) for(unsigned e=0;e<8;++e) {
+      const auto base=palette_colors(parsed)[color];
+      unsigned r=base>>11,g=(base>>5)&63,b=base&31;
+      if(e&1){g=g*3/4;b=b*3/4;} if(e&2){r=r*3/4;b=b*3/4;} if(e&4){r=r*3/4;g=g*3/4;}
+      assert(token_rgb565(color|(e<<6),parsed)==((r<<11)|(g<<5)|b));
+    }
+  }
+  Palette parsed=Palette::Current;
+  assert(!parse_palette(nullptr,parsed) && !parse_palette("unknown",parsed));
+  assert(token_rgb565(1,Palette::Unsaturated)==0x00f1);
+  assert(token_rgb565(1,Palette::SmoothV2)==0x00b1);
+  assert(token_rgb565(1,Palette::Sony)==0x0111);
+  assert(token_rgb565(1,Palette::Nintendo)==0x0132);
+  assert(token_rgb565(1,Palette::BmfFinal3)==0x0093);
   // Check every pixel against the original nine-bit encoding, including
   // per-line mask changes, PAL emphasis, grayscale and transparency markers.
   GameFrame frame{};

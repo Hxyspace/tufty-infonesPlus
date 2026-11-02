@@ -70,16 +70,18 @@ def main():
 16 release Z
 17 press Down
 18 release Down
-19 press Z
-20 release Z
-21 expect te 0
-21 shot display.bmp
-22 press H
-23 release H
-26 expect view library
-26 expect dirty 0
-26 expect selected 0
-27 quit
+19 press Down
+20 release Down
+21 press Z
+22 release Z
+23 expect te 0
+23 shot display.bmp
+24 press H
+25 release H
+28 expect view library
+28 expect dirty 0
+28 expect selected 0
+29 quit
 """)
     run("reload", """
 0 expect brightness 85
@@ -100,6 +102,48 @@ def main():
 26 shot return.bmp
 27 quit
 """)
+    run("palette-preview", """
+0 source serial
+0 expect palette current
+2 press Z
+3 release Z
+5 press Down
+6 release Down
+8 press Z
+9 release Z
+10 expect page 16
+10 shot palette-current.bmp
+11 press Right
+12 release Right
+13 shot palette-unsaturated.bmp
+13 expect palette current
+13 expect dirty 0
+14 press Z
+15 release Z
+16 expect palette unsaturated-final
+16 expect dirty 1
+16 expect page 16
+16 shot palette-applied.bmp
+17 press H
+18 release H
+21 expect view library
+21 expect dirty 0
+22 quit
+""", settings=True)
+    run("palette-game", """
+0 source serial
+0 expect palette unsaturated-final
+2 press Z
+3 release Z
+20 expect view game
+20 shot game-unsaturated.bmp
+22 press H
+23 release H
+26 expect view library
+27 quit
+""")
+    assert (work / "palette-current.bmp").read_bytes() != (work / "palette-unsaturated.bmp").read_bytes()
+    assert (work / "game.bmp").read_bytes() != (work / "game-unsaturated.bmp").read_bytes()
     # An assertion in a core callback must unwind via quit and release core allocations.
     run("game-error", """
 0 source serial
@@ -180,8 +224,10 @@ def main():
 12 release W
 14 press K
 15 release K
-17 press W
-18 release W
+16 press K
+17 release K
+18 press W
+19 release W
 19 expect te 0
 20 press Q
 21 release Q

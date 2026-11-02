@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "bluetooth_config.hpp"
+#include "presentation/nes_palette.hpp"
 namespace storage {
 constexpr size_t kMaxRoms=128, kMaxRomBytes=4*1024*1024;
 struct Entry {
@@ -13,6 +14,7 @@ struct Entry {
 struct Config {
     uint16_t controller=1;
     uint8_t brightness=80;
+    presentation::Palette palette=presentation::Palette::Current;
     bool swap_ab=false;
     bool serial_enabled=true;
     bool ble_enabled=true;

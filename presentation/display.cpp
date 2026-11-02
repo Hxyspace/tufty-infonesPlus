@@ -146,7 +146,6 @@ static void core(){
 }
 void start(){
     std::memset(games,0,sizeof games);
-    for(unsigned i=0;i<512;++i)palette[i]=presentation::token_rgb565(i);
     std::memset(menus,0,sizeof menus);
     multicore_launch_core1(core);
     while(!ready.load(std::memory_order_acquire)){tufty_service();tight_loop_contents();}
@@ -165,7 +164,12 @@ void present_menu(unsigned index){
     if(!visible){visible=true;tufty::panel::brightness(desired_brightness);}
 }
 presentation::GameFrame &game_buffer(){return games[mailbox.writing()].pixels;}
-void begin_game(){game_active.store(true,std::memory_order_release);}
+void begin_game(presentation::Palette selected){
+    // The preceding completed UI frame has drained all old game work.
+    // Publish the new table before core1 is allowed to consume game frames.
+    for(unsigned i=0;i<512;++i)palette[i]=presentation::token_rgb565(i,selected);
+    game_active.store(true,std::memory_order_release);
+}
 void end_game(){game_active.store(false,std::memory_order_release);}
 presentation::GameFrame &present_game(){
     auto &packet=games[mailbox.writing()];

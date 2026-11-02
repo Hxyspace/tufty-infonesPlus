@@ -56,10 +56,10 @@ void wait_end(unsigned count){
 void fill(unsigned color){
   auto &f=display::game_buffer();std::memset(f.colors,color,sizeof f.colors);std::memset(f.emphasis,0,sizeof f.emphasis);
 }
-void check_game(unsigned index,unsigned color){
+void check_game(unsigned index,unsigned color,presentation::Palette palette=presentation::Palette::Current){
   std::lock_guard<std::mutex> lock(mutex);
   assert(index<images.size());
-  const auto rgb=__builtin_bswap16(presentation::token_rgb565(color));
+  const auto rgb=__builtin_bswap16(presentation::token_rgb565(color,palette));
   for(unsigned x=0;x<320;++x)for(unsigned y=0;y<240;++y)
     assert(images[index][x*240+y]==(x>=32 && x<288?rgb:0));
 }
@@ -143,5 +143,13 @@ int main(){
   wait_gate(9);edge();wait_end(8);menu_thread.join();
   display::te_sync(false);until([]{return !display::stats().te_enabled;});
   display::te_sync(true);until([]{return display::stats().te_enabled;});
+  // Each new session publishes its palette after a completed UI boundary.
+  display::begin_game(presentation::Palette::Unsaturated);
+  fill(1);display::present_game();wait_gate(10);edge();wait_end(9);
+  check_game(8,1,presentation::Palette::Unsaturated);
+  display::end_game();menu_thread=present(0);wait_gate(11);edge();wait_end(10);menu_thread.join();
+  display::begin_game(presentation::Palette::Sony);
+  fill(1);display::present_game();wait_gate(12);edge();wait_end(11);
+  check_game(10,1,presentation::Palette::Sony);
   stop.store(true);cv.notify_all();consumer.join();
 }

@@ -100,6 +100,8 @@ static void load_config() {
     auto *id=cJSON_GetObjectItemCaseSensitive(root,"controller_id");
     auto *level=cJSON_GetObjectItemCaseSensitive(root,"brightness");
     auto *swap=cJSON_GetObjectItemCaseSensitive(root,"swap_ab");
+    auto *palette=cJSON_GetObjectItemCaseSensitive(root,"nes_palette");
+    auto selected_palette=presentation::Palette::Current;
     auto *idle=cJSON_GetObjectItemCaseSensitive(root,"menu_sleep_seconds");
     auto *ble=cJSON_GetObjectItemCaseSensitive(root,"ble_enabled");
     auto *serial=cJSON_GetObjectItemCaseSensitive(root,"serial_enabled");
@@ -111,6 +113,7 @@ static void load_config() {
     if((id && (!cJSON_IsNumber(id) || id->valuedouble!=id->valueint || id->valueint<1 || id->valueint>65535)) ||
        (level && (!cJSON_IsNumber(level) || level->valuedouble!=level->valueint || level->valueint<1 || level->valueint>100)) ||
        (swap && !cJSON_IsBool(swap)) ||
+       (palette && (!cJSON_IsString(palette) || !presentation::parse_palette(palette->valuestring,selected_palette))) ||
        (idle && (!cJSON_IsNumber(idle) || idle->valuedouble!=idle->valueint || idle->valueint<0 || idle->valueint>86400)) ||
        (serial && !cJSON_IsBool(serial)) ||
        (ble && !cJSON_IsBool(ble)) || (random && !cJSON_IsBool(random)) ||
@@ -154,6 +157,7 @@ static void load_config() {
     if(id) config.controller=id->valueint;
     if(level) config.brightness=level->valueint;
     if(swap) config.swap_ab=cJSON_IsTrue(swap);
+    config.palette=selected_palette;
     if(idle) config.menu_sleep_seconds=idle->valueint;
     if(ble) config.ble_enabled=cJSON_IsTrue(ble);
     if(serial) config.serial_enabled=cJSON_IsTrue(serial);
@@ -450,6 +454,7 @@ bool save() {
     bool ok=cJSON_AddNumberToObject(root,"controller_id",config.controller) &&
         cJSON_AddNumberToObject(root,"brightness",config.brightness) &&
         cJSON_AddBoolToObject(root,"swap_ab",config.swap_ab) &&
+        cJSON_AddStringToObject(root,"nes_palette",presentation::palette_id(config.palette)) &&
         cJSON_AddNumberToObject(root,"menu_sleep_seconds",config.menu_sleep_seconds) &&
         cJSON_AddBoolToObject(root,"serial_enabled",config.serial_enabled) &&
         cJSON_AddBoolToObject(root,"ble_enabled",config.ble_enabled) &&

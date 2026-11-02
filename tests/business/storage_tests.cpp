@@ -174,6 +174,7 @@ int main(int argc,char **argv) {
     bool corrupt=argc==4 && (scenario=="corrupt" || scenario=="reset_corrupt");
     bool idle_off=argc==4 && std::string(argv[3])=="idle_off";
     bool bad_idle=argc==4 && std::string(argv[3])=="bad_idle";
+    const bool bad_palette=scenario=="bad_palette" || scenario=="bad_palette_type";
     bool custom_ble=argc==4 && (std::string(argv[3])=="ble" || scenario.rfind("gamepad_",0)==0);
     bool bad_peer=argc==4 && std::string(argv[3])=="bad_peer";
     bool bad_ble=argc==4 && std::string(argv[3])=="bad_ble";
@@ -184,6 +185,7 @@ int main(int argc,char **argv) {
     if(policy) ble="\"serial_enabled\":false,\"ble_mode\":\"whitelist\",\"ble_preferred\":1,\"ble_whitelist\":[{\"mac\":\"AA:BB:CC:DD:EE:FF\",\"random\":false},{\"mac\":\"AA:BB:CC:DD:EE:FF\",\"random\":true}]";
     if(bad_policy) ble="\"serial_enabled\":false,\"ble_mode\":\"whitelist\",\"ble_preferred\":0,\"ble_whitelist\":[]";
     if(scenario=="duplicate_peer") ble="\"ble_whitelist\":[{\"mac\":\"AA:BB:CC:DD:EE:FF\",\"random\":false},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"random\":false}]";
+    if(bad_palette) ble=scenario=="bad_palette"?"\"nes_palette\":\"unknown\"":"\"nes_palette\":2";
     if(!blank) fixture_state(corrupt,idle_off?"0":bad_idle?"86401":nullptr,ble);
     if(scenario.rfind("reset",0)==0) {
         storage::init(); assert(storage::mounted());
@@ -214,7 +216,7 @@ int main(int argc,char **argv) {
         assert(storage::file_size("/state/games.idx",bytes)==storage::FileStatus::Missing);
         munmap(flash,16*1024*1024); return 0;
     }
-    if(blank || corrupt || bad_idle || bad_peer || bad_ble || bad_policy) {
+    if(blank || corrupt || bad_idle || bad_peer || bad_ble || bad_policy || bad_palette) {
         std::vector<uint8_t> before(flash,flash+16*1024*1024);
         storage::init(); assert(storage::mounted() && !storage::state_ready());
         assert(!storage::config.ble.count && storage::config.serial_enabled);
@@ -516,6 +518,7 @@ int main(int argc,char **argv) {
         munmap(flash,16*1024*1024); return 0;
     }
     assert(storage::config.controller==23 && storage::config.brightness==67 && storage::config.swap_ab);
+    assert(storage::config.palette==presentation::Palette::Current); // Existing records need no migration.
     assert(storage::config.menu_sleep_seconds==(idle_off?0u:300u)); // Old/default and disabled settings.
     assert(storage::config.ble_enabled==!custom_ble);
     assert(storage::config.serial_enabled==!policy);
@@ -536,6 +539,7 @@ int main(int argc,char **argv) {
     nes::Cartridge image; assert(nes::inspect(data,bytes,image));
     storage::config.controller=65535; storage::config.brightness=35; storage::config.swap_ab=true;
     storage::config.menu_sleep_seconds=0;
+    storage::config.palette=presentation::Palette::Unsaturated;
     storage::config.ble_enabled=false; storage::config.serial_enabled=false;
     storage::config.ble_scan_uuid=0x1812;
     storage::config.ble={}; bluetooth::Peer key;
@@ -547,6 +551,15 @@ int main(int argc,char **argv) {
     assert(storage::read_file("/state/nes.json",text,sizeof(text)-1,actual)); text[actual]=0;
     assert(std::strstr(text,"65535") && !std::strstr(text,"last_rom"));
     assert(std::strstr(text,"\"menu_sleep_seconds\":0"));
+    assert(std::strstr(text,"\"nes_palette\":\"unsaturated-final\""));
+    storage::config.palette=presentation::Palette::Current;
+    storage::init(); assert(storage::config.palette==presentation::Palette::Unsaturated);
+    for(unsigned i=0;i<presentation::palette_count;++i) {
+        const auto selected=presentation::Palette(i);
+        storage::config.palette=selected;
+        assert(storage::save()); storage::config.palette=presentation::Palette::Count;
+        storage::init(); assert(storage::config.palette==selected);
+    }
     assert(std::strstr(text,"\"ble_enabled\":false") && std::strstr(text,"\"serial_enabled\":false") &&
            std::strstr(text,"\"ble_whitelist\":[{\"mac\":\"AA:BB:CC:DD:EE:FF\",\"random\":true}]"));
     assert(std::strstr(text,"\"ble_mode\":\"whitelist\"") && std::strstr(text,"\"ble_preferred\":0"));

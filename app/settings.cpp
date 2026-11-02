@@ -8,6 +8,7 @@
 #include "menu_repeat.hpp"
 #include "ui.hpp"
 #include "battery.hpp"
+#include "presentation/palette_sample.hpp"
 #include "tufty_version.hpp"
 #include <algorithm>
 #include <cstdio>
@@ -23,6 +24,8 @@ uint32_t library_generation=0;
 bool unsaved() {return configuration::changed() || library::pending() || game_lists::pending();}
 enum class Dialog {None,Confirm,SaveError,Brightness,SleepTime,ControllerId};
 Page current=Page::Root;
+presentation::Palette palette_draft=presentation::Palette::Current;
+bool palette_confirmed=false;
 unsigned focuses[unsigned(Page::Count)]{};
 unsigned first_rows[unsigned(Page::Count)]{};
 constexpr unsigned visible_rows=5;
@@ -55,7 +58,7 @@ Row rows[17];
 unsigned row_count=0;
 char footer[96]{};
 const char *titles[]={"Settings","Display","Control","Bluetooth","Search gamepads","Gamepad",
-    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front","View list","Favorites"};
+    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front","View list","Favorites","NES palette"};
 static_assert(sizeof titles/sizeof *titles==unsigned(Page::Count));
 constexpr Page categories[]={Page::Display,Page::Control,Page::Power,Page::System,Page::About};
 constexpr ui::Icon category_icons[]={ui::Icon::Display,ui::Icon::Control,ui::Icon::Power,ui::Icon::System,ui::Icon::About};
@@ -126,6 +129,7 @@ const char *parent_title() {
     case Page::Device: return "Search gamepads";
     case Page::AllowedDevice: return "Allowed devices";
     case Page::GameLibrary: return "System";
+    case Page::Palette: return "Display";
     case Page::GameOrder: return "Game library";
     case Page::LibraryView: case Page::Favorites: return "Game library";
     default: return "Settings";
@@ -156,6 +160,7 @@ void model(uint32_t now=0,Page view=Page::Count) {
             unsaved()?"Changes save on exit":"Saved settings"); break;
     case Page::Display: {
         std::snprintf(value,sizeof(value),"%u%%",cfg.brightness); add("Brightness",value,true);
+        add("NES palette","",true);
         marked("TE sync",display::te_requested());
         const auto stats=display::stats();
         std::snprintf(footer,sizeof(footer),"TE: %s (this session)",
@@ -234,7 +239,7 @@ void model(uint32_t now=0,Page view=Page::Count) {
         if(battery::reading().valid) std::snprintf(value,sizeof(value),"~%u%%",battery::reading().percent);
         else std::strcpy(value,"--");
         add("Battery estimate",value); break;
-    case Page::Count: break;
+    case Page::Palette: case Page::Count: break;
     }
     auto &focus=focuses[unsigned(view)];
     focus=std::min(focus,row_count?row_count-1:0);
@@ -250,6 +255,7 @@ void back() {
     switch(current) {
     case Page::Root: request_exit(Exit::Library); break;
     case Page::Bluetooth: go(Page::Control); break;
+    case Page::Palette: go(Page::Display); break;
     case Page::Search: stop_search(); go(Page::Bluetooth); break;
     case Page::Device: go(Page::Search); break;
     case Page::AllowedDevice: go(Page::Allowed); break;
@@ -302,7 +308,8 @@ void activate(uint32_t now) {
     }
     case Page::Display:
         if(row==0) {dialog=Dialog::Brightness; barrier();}
-        else if(row==1) {
+        else if(row==1) {palette_draft=cfg.palette; palette_confirmed=false; go(Page::Palette);}
+        else if(row==2) {
             const auto stats=display::stats();
             display::te_sync(display::te_requested() && !stats.te_enabled && stats.te_timeouts?true:!display::te_requested());
         } break;
@@ -542,6 +549,23 @@ void update(input::Snapshot keys,bool home,uint32_t now) {
         }
         return;
     }
+    if(current==Page::Palette) {
+        const auto index=unsigned(palette_draft);
+        if(pressed&input::PagePrevious) {title_focus=true; palette_confirmed=false;}
+        else if(pressed&input::PageNext) {title_focus=false; palette_confirmed=false;}
+        else if(title_focus) {
+            if(!(pressed&(input::Previous|input::Next)) && (pressed&input::Confirm)) back();
+        } else if(pressed&input::Previous) {
+            palette_draft=presentation::Palette((index+presentation::palette_count-1)%presentation::palette_count);
+            palette_confirmed=false;
+        } else if(pressed&input::Next) {
+            palette_draft=presentation::Palette((index+1)%presentation::palette_count);
+            palette_confirmed=false;
+        } else if(pressed&input::Confirm) {
+            storage::config.palette=palette_draft; configuration::sync(); palette_confirmed=true;
+        }
+        return;
+    }
     if(title_focus) {
         if(pressed&input::PageNext) {title_focus=false; selected()=0;}
         else if(!(pressed&(input::PagePrevious|input::Previous|input::Next)) && (pressed&input::Confirm)) back();
@@ -659,6 +683,32 @@ void draw(uint16_t *out) {
         ui::box(out,1,61,317,1,separator);
         ui::text_centered(out,"<",14,bar+2,27,ui::cyan,12);
         ui::text_centered(out,titles[unsigned(current)],30,bar+2,27,ui::white,280);
+    }
+    if(view==Page::Palette && dialog==Dialog::None) {
+        const auto *colors=presentation::palette_colors(palette_draft);
+        const auto arrows=title_focus?ui::dim:ui::cyan;
+        ui::text_centered(out,"<",10,83,34,arrows,10);
+        ui::text_centered(out,">",111,83,34,arrows,10);
+        char name[32]; std::snprintf(name,sizeof name,"%s",presentation::palette_name(palette_draft));
+        // Long preset names use two lines, keeping arrows and colors aligned.
+        char *second=ui::width(name)>84?std::strrchr(name,' '):nullptr;
+        if(second) *second++=0;
+        ui::text_centered(out,name,65-ui::width(name)/2,second?81:83,second?18:34,ui::white,88);
+        if(second) ui::text_centered(out,second,65-ui::width(second)/2,101,18,ui::white,88);
+        for(unsigned i=0;i<64;++i)
+            ui::box(out,14+int(i/16)*25,132+int(i%16)*4,18,4,colors[i]);
+        const auto frame_color=title_focus?ui::dim:palette_confirmed?green:ui::cyan;
+        ui::box(out,128,64,184,140,frame_color);
+        // Decode directly into the caller-owned UI frame; no image SRAM cache.
+        unsigned pixel=0;
+        for(auto run:presentation::palette_sample) {
+            const auto color=colors[run&63];
+            for(unsigned n=0;n<unsigned(run>>6)+1;++n,++pixel)
+                out[(66+pixel/180)*320+130+pixel%180]=color;
+        }
+        const char *hint=transitioning()?message:title_focus?"A: back   Down: preview":"Left/right: preview   A: apply   B: back";
+        ui::text_centered(out,hint,8,bottom,bar,bar_text,304);
+        return;
     }
     const unsigned first=first_rows[unsigned(view)];
     const unsigned last=std::min(row_count,first+visible_rows);
