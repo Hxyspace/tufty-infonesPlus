@@ -37,8 +37,7 @@ struct Receiver {
     void release();
     void select(bool enabled); // Arbitration resets gestures on every handover.
     bool contributing() const {return selected;}
-    uint8_t nes() const;
-    uint8_t turbo(uint32_t now_ms) const; // Game-only X/Y pulses; menus use plain nes().
+    uint8_t nes() const; // Legacy eight-bit diagnostics only; applications use input::nes().
 private:
     int8_t stick_x=0,stick_y=0;
     bool selected=true,combo_holding=false,combo_latched=false;

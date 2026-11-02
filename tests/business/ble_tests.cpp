@@ -268,10 +268,10 @@ int main(int argc,char **argv) {
             tgp_sample(0,1,v1?1:2); assert(ble::buttons()); // Duplicate does not release or refresh.
             tgp_sample(0,2,3); tgp_sample(0,2,2,2); tgp_sample(0,2,2,tgp_controller,4); assert(ble::buttons());
             if(handover) {
-                assert(input::hub.active_remote()==input::Source::Serial && !input::hub.nes());
-                usb::pad.input.release(); assert(input::hub.active_remote()==input::Source::Ble && !input::hub.nes());
+                assert(input::hub.active_remote()==input::Source::Serial && !input::nes(input::hub.gamepad()));
+                usb::pad.input.release(); assert(input::hub.active_remote()==input::Source::Ble && !input::nes(input::hub.gamepad()));
                 tgp_sample(0,2); tgp_sample(0x18,3);
-                assert(input::hub.nes()==(gamepad::Right|gamepad::A));
+                assert(input::nes(input::hub.gamepad())==(gamepad::Right|gamepad::A));
             }
             uint8_t seq=handover?4:2;
             // A quiet user's neutral heartbeats keep the connection alive.
@@ -385,11 +385,11 @@ int main(int argc,char **argv) {
         if(!std::strcmp(argv[1],"controls")) {
             controllers::init();
             event({BTSTACK_EVENT_STATE,1,HCI_STATE_WORKING}); advertise(); linked(); ready();
-            report(255); report(2,1); assert(input::hub.nes()==(gamepad::Right|gamepad::A));
+            report(255); report(2,1); assert(input::nes(input::hub.gamepad())==(gamepad::Right|gamepad::A));
             uint8_t neutral[]={128,128,128,128,255,0,0,0,0,0};
             usb::pad.input.receive(neutral,10); assert(input::hub.active_remote()==input::Source::Ble);
             controllers::set_enabled(input::Source::Ble,false); ble::poll();
-            assert(!input::hub.nes() && input::hub.active_remote()==input::Source::Serial);
+            assert(!input::nes(input::hub.gamepad()) && input::hub.active_remote()==input::Source::Serial);
             disconnected(); ble::poll();
             assert(controllers::command("serial off") && !storage::config.serial_enabled);
             assert(input::hub.active_remote()==input::Source::None);
@@ -481,9 +481,9 @@ int main(int argc,char **argv) {
             assert(reads==1 && last_read_id==4 && !disconnects);
             report(255); // Arm the shared input path.
             report(255,0x18); // Physical X/Y continue without new BLE notifications.
-            assert(input::hub.nes(false,0)==(gamepad::A|gamepad::B));
-            assert(!input::hub.nes(false,62));
-            assert(input::hub.nes(false,124)==(gamepad::A|gamepad::B));
+            assert(input::nes(input::hub.gamepad(),false,0)==(gamepad::A|gamepad::B));
+            assert(!input::nes(input::hub.gamepad(),false,62));
+            assert(input::nes(input::hub.gamepad(),false,124)==(gamepad::A|gamepad::B));
             report(0xa2,1,0x10); // High hat nibble is padding; low nibble means right.
             assert(ble::buttons()==(gamepad::Right|gamepad::A) && ble::home());
             // Consumer-control report 3 must neither become keys nor release them.

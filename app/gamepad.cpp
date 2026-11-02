@@ -85,11 +85,4 @@ uint8_t Receiver::nes() const {
         ((directions&North)?Up:0)|((directions&South)?Down:0)|
         ((directions&West)?Left:0)|((directions&East)?Right:0);
 }
-uint8_t Receiver::turbo(uint32_t now_ms) const {
-    // Match ble_gamepad's 62 ms on / 62 ms off cadence (about 8 Hz).
-    // Sample the clock, so change-only HID reports keep repeating without
-    // timers, extra notifications or synthetic menu button edges.
-    if(!valid || combo_latched || (now_ms/62)%2) return 0;
-    return ((state.keys&KeyX)?A:0)|((state.keys&KeyY)?B:0);
-}
 }

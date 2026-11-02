@@ -78,8 +78,9 @@ void tufty_service() {
 static void game_input(uint8_t &p1,uint8_t &p2,bool &quit) {
     tufty_service();
     sample_local();
-    p1=input::hub.nes(storage::config.swap_ab,to_ms_since_boot(get_absolute_time()));p2=0;
-    quit=input::hub.home() || usb::disk_requested || usb::boot_requested || usb::rescan_requested || power::pending();
+    const auto pad=input::hub.gamepad();
+    p1=input::nes(pad,storage::config.swap_ab,to_ms_since_boot(get_absolute_time()));p2=0;
+    quit=((pad.controller.keys|pad.pressed)&gamepad::KeyHome) || usb::disk_requested || usb::boot_requested || usb::rescan_requested || power::pending();
 }
 static void __not_in_flash_func(game_line)(unsigned y,const uint16_t *pixels,uint8_t mask,bool pal) {
     SCREEN->line(y,pixels,mask,pal);
@@ -195,8 +196,12 @@ int main() {
             position=selected; menu::reset_page();
             menu::select(game_lists::game(selected-1));
         }
-        auto keys=input::hub.take_menu();
-        const bool home=input::hub.take_home();
+        const auto pad=input::hub.gamepad();
+        auto keys=input::menu(pad);
+        const bool home=pad.pressed&gamepad::KeyHome;
+        // The dispatcher now owns these events; downstream service calls may
+        // publish the next batch without having their edges cleared afterward.
+        input::hub.acknowledge(pad);
         if(!settings::transitioning()) power::idle(keys.held || keys.pressed || home || input::hub.home());
         if(settings::active()) {
             settings::update(keys,home,to_ms_since_boot(get_absolute_time()));

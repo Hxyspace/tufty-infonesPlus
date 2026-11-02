@@ -181,8 +181,9 @@ void safe_service() {
     catch(...) {callback_error=std::current_exception(); running=false;}
 }
 void game_input(uint8_t &a,uint8_t &b,bool &quit) {
-    safe_service(); a=input::hub.nes(storage::config.swap_ab,uint32_t(micros()/1000)); b=0;
-    quit=!running || input::hub.home();
+    safe_service(); const auto pad=input::hub.gamepad();
+    a=input::nes(pad,storage::config.swap_ab,uint32_t(micros()/1000)); b=0;
+    quit=!running || ((pad.controller.keys|pad.pressed)&gamepad::KeyHome);
 }
 uint16_t game_palette[512];
 void game_line(unsigned y,const uint16_t *pixels,uint8_t mask,bool pal) {
@@ -250,7 +251,7 @@ void loop(bool open_settings,bool open_disk) {
         service(); if(!running) break;
         const uint32_t now=micros()/1000;
         if(disk_mode) {
-            input::hub.take_menu(); input::hub.take_home();
+            input::hub.acknowledge(input::hub.gamepad());
             // Match the independent device renderer: every state animates at
             // about 30 Hz, including transfers.
             if(disk_redraw || now-disk_draw_at>=33) {
@@ -270,7 +271,9 @@ void loop(bool open_settings,bool open_disk) {
         ui::service(now); configuration::sync();
         game_lists::refresh();
         if(selected>menu::last_card()) {selected=menu::last_card(); position=float(selected);}
-        auto snapshot=input::hub.take_menu(); bool home=input::hub.take_home();
+        const auto pad=input::hub.gamepad();
+        auto snapshot=input::menu(pad); bool home=pad.pressed&gamepad::KeyHome;
+        input::hub.acknowledge(pad);
         if(settings::active()) {
             settings::update(snapshot,home,now); settings::draw(screen.data());
             show(screen.data()); settings::after_present();

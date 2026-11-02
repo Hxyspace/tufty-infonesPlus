@@ -34,6 +34,12 @@ static ble::Status radio{ble::State::Scanning,true,false,false,{},0};
 static bluetooth::Candidate found[16];
 static size_t found_count=0;
 static gamepad::Receiver ble_pad;
+static void dispatch_input(uint32_t now) {
+    const auto pad=input::hub.gamepad();
+    const auto keys=input::menu(pad);
+    input::hub.acknowledge(pad);
+    settings::update(keys,pad.pressed&gamepad::KeyHome,now);
+}
 namespace battery {extern Reading test_value;}
 namespace storage {
 Config config;
@@ -188,11 +194,11 @@ int main() {
     assert(frame[97*320+150]==ui::rgb(116,109,97)); // Option divider.
     // Right enters a child page. Its held state must not also adjust that page.
     focus(0); input::hub.local(input::LocalC);
-    settings::update(input::hub.take_menu(),input::hub.take_home(),++now);
+    dispatch_input(++now);
     assert(settings::page()==settings::Page::Display);
-    settings::update(input::hub.take_menu(),input::hub.take_home(),now+=600);
+    dispatch_input(now+=600);
     assert(bright==80);
-    input::hub.local(0); settings::update(input::hub.take_menu(),false,++now);
+    input::hub.local(0); dispatch_input(++now);
     snapshot("display");
     settings::draw(frame.data()); assert(frame[134*320+285]==ui::rgb(70,220,100));
     focus(0); press(input::Previous); // Left changes panes, never brightness.
@@ -482,9 +488,9 @@ int main() {
     assert(settings::take_exit()==settings::Exit::Library && configuration::changed());
     root(); save_ok=true; settings::request_exit(settings::Exit::Bootsel);
     input::hub.local(input::LocalHome);
-    settings::update(input::hub.take_menu(),input::hub.take_home(),++now);
+    dispatch_input(++now);
     present(); assert(settings::take_exit()==settings::Exit::None && !configuration::changed());
-    settings::update(input::hub.take_menu(),input::hub.take_home(),now+=600);
+    dispatch_input(now+=600);
     present(); assert(settings::take_exit()==settings::Exit::None);
     input::hub.local(0); present(); assert(settings::take_exit()==settings::Exit::Library);
     root(); input::hub.local(input::LocalB);

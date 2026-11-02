@@ -1,4 +1,5 @@
 #include "protocol.hpp"
+#include "input.hpp"
 #include "tgp_legacy.hpp"
 #include <cassert>
 #include <cstdio>
@@ -104,13 +105,15 @@ static void serial_tests() {
     r.poll(uint32_t(0xffffff00u+350)); assert(!r.input.home && r.active);
     r.poll(uint32_t(0xffffff00u+1200)); assert(!r.active);
     // Serial v3 carries physical X/Y too; its stale-input timeout stops turbo.
-    r.reset(); hello(r,10000); std::memcpy(report,neutral,10); report[5]=0x18;
-    line(r,frame(report,0),10044);
-    assert(!r.input.nes() && r.input.turbo(10044)==(gamepad::A|gamepad::B));
-    assert(!r.input.turbo(10106));
-    line(r,frame(report,1),10106); assert(!r.input.turbo(10106));
-    assert(r.input.turbo(10168)==(gamepad::A|gamepad::B));
-    r.poll(10456); assert(!r.input.turbo(10540));
+    r.reset(); input::Hub hub; hub.attach(input::Source::Serial,r.input);
+    hello(r,10000); line(r,frame(neutral,0),10000);
+    std::memcpy(report,neutral,10); report[5]=0x18;
+    line(r,frame(report,1),10044);
+    assert(!r.input.nes() && input::nes(hub.gamepad(),false,10044)==(gamepad::A|gamepad::B));
+    assert(!input::nes(hub.gamepad(),false,10106));
+    line(r,frame(report,2),10106); assert(!input::nes(hub.gamepad(),false,10106));
+    assert(input::nes(hub.gamepad(),false,10168)==(gamepad::A|gamepad::B));
+    r.poll(10456); assert(!input::nes(hub.gamepad(),false,10540));
 }
 static std::string legacy_frame(uint8_t keys,uint8_t seq,uint8_t version=2,uint16_t id=1) {
     char out[32]; std::snprintf(out,sizeof(out),"#TGP:544750%02x%02x%02x%02x%02x\n",version,id&255,id>>8,seq,keys);

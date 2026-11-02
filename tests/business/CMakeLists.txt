@@ -12,7 +12,7 @@ add_compile_definitions(TUFTY_HOST_PREVIEW
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -UNDEBUG)
 include_directories(${runtime} ${root}/config ${fatfs} ${root} ${root}/presentation ${root}/platform/tufty2350
   ${root}/lib/littlefs ${root}/lib/cjson ${CMAKE_CURRENT_LIST_DIR}/stubs)
-add_executable(protocol_tests protocol_tests.cpp ${runtime}/protocol.cpp ${runtime}/gamepad.cpp)
+add_executable(protocol_tests protocol_tests.cpp ${runtime}/protocol.cpp ${runtime}/gamepad.cpp ${runtime}/input.cpp)
 add_test(NAME protocol COMMAND protocol_tests)
 add_executable(input_tests input_tests.cpp ${runtime}/gamepad.cpp ${runtime}/input.cpp)
 add_test(NAME input COMMAND input_tests)
