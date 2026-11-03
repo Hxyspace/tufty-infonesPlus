@@ -13,9 +13,9 @@ endif()
 
 set(fatfs "${CMAKE_CURRENT_SOURCE_DIR}/lib/fatfs/source")
 add_executable(nes
-  app/main.cpp presentation/display.cpp presentation/disk_display.cpp presentation/disk_renderer.cpp
+  app/main.cpp presentation/display.cpp presentation/game_view.cpp presentation/disk_display.cpp presentation/disk_renderer.cpp
   platform/tufty2350/panel.cpp platform/tufty2350/core_memory.cpp app/menu.cpp app/storage.cpp app/fat_disk.cpp
-  app/rom_store.cpp app/library.cpp app/game_lists.cpp app/usb.cpp app/descriptors.cpp app/protocol.cpp app/settings.cpp app/gamepad_test.cpp app/background.cpp app/ui.cpp
+  app/rom_store.cpp app/library.cpp app/game_lists.cpp app/usb.cpp app/descriptors.cpp app/protocol.cpp app/settings.cpp app/gamepad_test.cpp app/background.cpp app/side_background.cpp app/ui.cpp
   app/power.cpp platform/tufty2350/power_board.cpp platform/tufty2350/power_reset.cpp platform/tufty2350/battery.cpp
   app/disk_ui.cpp app/ble.cpp app/ble_gamepad.cpp app/ble_tgp.cpp app/bluetooth_manager.cpp
   app/gamepad.cpp app/input.cpp app/controllers.cpp platform/tufty2350/ble_stack.c platform/tufty2350/radio_wait.c

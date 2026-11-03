@@ -4,6 +4,7 @@
 #include "bluetooth_config.hpp"
 #include "presentation/nes_palette.hpp"
 #include "background_path.hpp"
+#include "side_background_path.hpp"
 namespace storage {
 constexpr size_t kMaxRoms=128, kMaxRomBytes=4*1024*1024;
 struct Entry {
@@ -17,6 +18,9 @@ struct Config {
     uint8_t brightness=80;
     presentation::Palette palette=presentation::Palette::Current;
     char menu_background[background::path_bytes]{}; // Empty selects the built-in default.
+    presentation::Position game_position=presentation::Position::Center;
+    bool fps_monitor=false;
+    char side_backgrounds[3][side_background::path_bytes]{}; // One choice for each position; empty is black.
     bool swap_ab=false;
     bool serial_enabled=true;
     bool ble_enabled=true;

@@ -44,6 +44,8 @@ static uint8_t desired_brightness=0;
 static bool visible=false;
 alignas(4) static uint16_t columns[2][height];
 static uint16_t line_emphasis[height];
+static presentation::GameView game_view;
+static presentation::FpsMonitor fps_monitor;
 void early_init(){tufty::panel::early_init();}
 void brightness(uint8_t percent){
     desired_brightness=percent>100?100:percent;
@@ -86,12 +88,23 @@ static void __no_inline_not_in_flash_func(frame)(const uint16_t *menu,const Game
         previous_game_at=transfer_started;have_game_at=true;
         game_sequence.store(game->sequence,std::memory_order_relaxed);
     } else have_game_at=false;
+    const int left=presentation::game_x(game_view.position);
     for(int x=0;x<width;++x){
         uint16_t *col=columns[x&1];
-        for(int y=0;y<height;++y){
-            const uint16_t pixel=menu?menu[y*width+x]:
-                x>=32 && x<288?palette[game->pixels.colors[x-32][y]|line_emphasis[y]]:0;
-            col[y]=__builtin_bswap16(pixel);
+        if(menu) {
+            for(int y=0;y<height;++y) col[y]=__builtin_bswap16(menu[y*width+x]);
+        } else if(x>=left && x<left+256) {
+            for(int y=0;y<height;++y) col[y]=__builtin_bswap16(palette[game->pixels.colors[x-left][y]|line_emphasis[y]]);
+        } else {
+            const auto *side=game_view.column(x);
+            if(!game_view.fps) {
+                if(side) for(int y=0;y<height;++y) col[y]=__builtin_bswap16(side[y]);
+                else std::memset(col,0,sizeof columns[0]);
+            } else {
+                for(int y=0;y<height;++y) col[y]=side?side[y]:0;
+                fps_monitor.column(x,col);
+                for(int y=0;y<height;++y) col[y]=__builtin_bswap16(col[y]);
+            }
         }
         tufty::panel::send_column(col,height);
     }
@@ -99,6 +112,7 @@ static void __no_inline_not_in_flash_func(frame)(const uint16_t *menu,const Game
     const uint32_t transferred=time_us_32()-transfer_started;
     transfer_us.store(transferred,std::memory_order_relaxed);
     if(game){game_transfer_total.fetch_add(transferred,std::memory_order_relaxed);game_sent.fetch_add(1,std::memory_order_relaxed);}
+    if(game && game_view.fps) fps_monitor.completed(game->sequence,time_us_32());
     wait_us.store(waited,std::memory_order_relaxed);maximum(wait_max,waited);
     wait_total.fetch_add(waited,std::memory_order_relaxed);
     const uint32_t elapsed=time_us_32()-started;
@@ -164,10 +178,11 @@ void present_menu(unsigned index){
     if(!visible){visible=true;tufty::panel::brightness(desired_brightness);}
 }
 presentation::GameFrame &game_buffer(){return games[mailbox.writing()].pixels;}
-void begin_game(presentation::Palette selected){
+void begin_game(presentation::Palette selected,presentation::GameView view){
     // The preceding completed UI frame has drained all old game work.
     // Publish the new table before core1 is allowed to consume game frames.
     for(unsigned i=0;i<512;++i)palette[i]=presentation::token_rgb565(i,selected);
+    game_view=view;fps_monitor.reset(view.position,view.fps);
     game_active.store(true,std::memory_order_release);
 }
 void end_game(){game_active.store(false,std::memory_order_release);}

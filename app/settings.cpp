@@ -3,6 +3,7 @@
 #include "game_lists.hpp"
 #include "gamepad_test.hpp"
 #include "background.hpp"
+#include "side_background.hpp"
 #include "configuration.hpp"
 #include "controllers.hpp"
 #include "ble.hpp"
@@ -62,7 +63,7 @@ Row rows[17];
 unsigned row_count=0;
 char footer[96]{};
 const char *titles[]={"Settings","Display","Control","Bluetooth","Search gamepads","Gamepad",
-    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front","View list","Favorites","NES palette","Gamepad test","Background","Background"};
+    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front","View list","Favorites","NES palette","Gamepad test","Background","Background","Game display","Position","Side background","Side background"};
 static_assert(sizeof titles/sizeof *titles==unsigned(Page::Count));
 constexpr Page categories[]={Page::Display,Page::Control,Page::Power,Page::System,Page::About};
 constexpr ui::Icon category_icons[]={ui::Icon::Display,ui::Icon::Control,ui::Icon::Power,ui::Icon::System,ui::Icon::About};
@@ -79,6 +80,8 @@ void stop_search() {
     search_flow=false; searching=false;
 }
 void go(Page next) {
+    if((current==Page::SideBackgrounds || current==Page::SidePreview) && next!=Page::SideBackgrounds && next!=Page::SidePreview)
+        side_background::close();
     const auto background_page=[](Page page) {return page==Page::Backgrounds || page==Page::BackgroundPreview;};
     if(current==Page::BackgroundPreview && next!=current) background::restore();
     if(background_page(current) && !background_page(next)) background::close();
@@ -118,6 +121,12 @@ void marked(const char *label,bool enabled) {
     add(label); rows[row_count-1].mark=enabled?Mark::On:Mark::Off;
 }
 Row row_at(Page view,unsigned i) {
+    if(view==Page::SideBackgrounds && i<side_background::count()) {
+        Row row;const auto *name=side_background::name(i);
+        std::snprintf(row.label,sizeof row.label,"%.*s",int(std::strlen(name))-(i?4:0),name);
+        std::snprintf(row.value,sizeof row.value,"%s",side_background::source(i));
+        row.mark=side_background::selected(i)?Mark::On:Mark::None;row.arrow=true;return row;
+    }
     if(view==Page::Backgrounds && i<background::count()) {
         Row row; const auto *name=background::name(i);
         std::snprintf(row.label,sizeof row.label,"%.*s",int(std::strlen(name)-4),name);
@@ -146,6 +155,9 @@ const char *parent_title() {
     case Page::Palette: return "Display";
     case Page::Backgrounds: return "Display";
     case Page::BackgroundPreview: return "Background";
+    case Page::GameDisplay: return "Display";
+    case Page::GamePosition: case Page::SideBackgrounds: return "Game display";
+    case Page::SidePreview: return "Side background";
     case Page::GameOrder: return "Game library";
     case Page::LibraryView: case Page::Favorites: return "Game library";
     default: return "Settings";
@@ -178,6 +190,7 @@ void model(uint32_t now=0,Page view=Page::Count) {
         std::snprintf(value,sizeof(value),"%u%%",cfg.brightness); add("Brightness",value,true);
         add("Background","",true);
         add("NES palette","",true);
+        add("Game display","",true);
         marked("TE sync",display::te_requested());
         const auto stats=display::stats();
         std::snprintf(footer,sizeof(footer),"TE: %s (this session)",
@@ -263,7 +276,22 @@ void model(uint32_t now=0,Page view=Page::Count) {
         std::snprintf(footer,sizeof footer,"%s",background::incomplete()?"Some folders unreadable":background::limited()?"First 64 backgrounds shown":
             ui::background_fallback()?"Selected image missing; using default":"A: preview");
         break;
-    case Page::BackgroundPreview: case Page::ControllerTest: case Page::Palette: case Page::Count: break;
+    case Page::GameDisplay:
+        add("Position",presentation::position_name(cfg.game_position),true);
+        add("Side background","",true);
+        if(cfg.game_position!=presentation::Position::Center) {
+            marked("FPS monitor",cfg.fps_monitor);
+            std::snprintf(footer,sizeof footer,"NES: emulation   LCD: presented");
+        }
+        break;
+    case Page::GamePosition:
+        for(auto p:{presentation::Position::Center,presentation::Position::Left,presentation::Position::Right})
+            marked(presentation::position_name(p),cfg.game_position==p);
+        std::snprintf(footer,sizeof footer,"Game stays 256 x 240");break;
+    case Page::SideBackgrounds:
+        row_count=side_background::count();
+        std::snprintf(footer,sizeof footer,"%s",side_background::incomplete()?"Some folders unreadable":side_background::limited()?"First 64 backgrounds shown":"A: preview");break;
+    case Page::SidePreview: case Page::BackgroundPreview: case Page::ControllerTest: case Page::Palette: case Page::Count: break;
     }
     auto &focus=focuses[unsigned(view)];
     focus=std::min(focus,row_count?row_count-1:0);
@@ -283,6 +311,9 @@ void back() {
     case Page::Palette: go(Page::Display); break;
     case Page::Backgrounds: go(Page::Display); break;
     case Page::BackgroundPreview: go(Page::Backgrounds); break;
+    case Page::GameDisplay: go(Page::Display);break;
+    case Page::GamePosition: case Page::SideBackgrounds: go(Page::GameDisplay);break;
+    case Page::SidePreview: go(Page::SideBackgrounds);break;
     case Page::Search: stop_search(); go(Page::Bluetooth); break;
     case Page::Device: go(Page::Search); break;
     case Page::AllowedDevice: go(Page::Allowed); break;
@@ -342,10 +373,27 @@ void activate(uint32_t now) {
             } else {say("Cannot load background list"); barrier();}
         }
         else if(row==2) {palette_draft=cfg.palette; palette_confirmed=false; go(Page::Palette);}
-        else if(row==3) {
+        else if(row==3) go(Page::GameDisplay);
+        else if(row==4) {
             const auto stats=display::stats();
             display::te_sync(display::te_requested() && !stats.te_enabled && stats.te_timeouts?true:!display::te_requested());
-        } break;
+        }
+        break;
+    case Page::GameDisplay:
+        if(row==0) {focuses[unsigned(Page::GamePosition)]=unsigned(cfg.game_position);go(Page::GamePosition);}
+        else if(row==1) {
+            if(side_background::open()) {
+                focuses[unsigned(Page::SideBackgrounds)]=side_background::current();
+                first_rows[unsigned(Page::SideBackgrounds)]=0;go(Page::SideBackgrounds);
+            } else {say("Cannot load background list");barrier();}
+        } else if(row==2) cfg.fps_monitor=!cfg.fps_monitor;
+        break;
+    case Page::GamePosition:
+        cfg.game_position=presentation::Position(row);go(Page::GameDisplay);break;
+    case Page::SideBackgrounds:
+        if(side_background::preview(row)) {background_confirmed=false;go(Page::SidePreview);}
+        else {say("Cannot read background");barrier();}
+        break;
     case Page::Backgrounds:
         if(row<background::count()) {
             if(background::preview(row)) {background_confirmed=false; go(Page::BackgroundPreview);}
@@ -444,6 +492,7 @@ void activate(uint32_t now) {
 }
 void open() {
     background::close();
+    side_background::close();
     game_lists::open(); game_lists::refresh();
     library_action=LibraryAction::None; library_generation=storage::generation();
     opened=true; current=Page::Root; completed=target=Exit::None;
@@ -594,20 +643,24 @@ void update(input::Snapshot keys,bool home,uint32_t now) {
         }
         return;
     }
-    if(current==Page::BackgroundPreview) {
+    if(current==Page::BackgroundPreview || current==Page::SidePreview) {
+        const bool side=current==Page::SidePreview;
         if(pressed&input::PagePrevious) {title_focus=true; background_confirmed=false;}
         else if(pressed&input::PageNext) {title_focus=false; background_confirmed=false;}
         else if(title_focus) {
             if(!(pressed&(input::Previous|input::Next)) && (pressed&input::Confirm)) back();
         } else if(pressed&(input::Previous|input::Next)) {
-            const unsigned count=background::count(),index=background::current();
+            const unsigned count=side?side_background::count():background::count(),index=side?side_background::current():background::current();
             const unsigned next=(index+(pressed&input::Previous?count-1:1))%count;
-            if(background::preview(next)) {
-                focuses[unsigned(Page::Backgrounds)]=next; background_confirmed=false;
+            if(side?side_background::preview(next):background::preview(next)) {
+                focuses[unsigned(side?Page::SideBackgrounds:Page::Backgrounds)]=next; background_confirmed=false;
                 // File reads service input; do not replay edges collected while loading.
                 barrier();
-            } else {go(Page::Backgrounds); say("Cannot read background");}
-        } else if(pressed&input::Confirm) background_confirmed=background::apply();
+            } else {go(side?Page::SideBackgrounds:Page::Backgrounds); say("Cannot read background");}
+        } else if(pressed&input::Confirm) {
+            if(side) {side_background::apply();background_confirmed=true;}
+            else background_confirmed=background::apply();
+        }
         return;
     }
     if(current==Page::Palette) {
@@ -689,16 +742,19 @@ void after_present() {
             say(!configuration::available() || unsaved()?"Session only; changes retained":"Saved settings"); return;
         }
         background::close();
+        side_background::close();
         completed=target; target=Exit::None; waiting_release=false; opened=false; barrier();
     }
 }
 void draw(uint16_t *out) {
-    if(current==Page::BackgroundPreview && dialog==Dialog::None && !transitioning()) {
-        ui::background_image(out);
+    if((current==Page::BackgroundPreview || current==Page::SidePreview) && dialog==Dialog::None && !transitioning()) {
+        if(current==Page::SidePreview) side_background::draw_preview(out);
+        else ui::background_image(out);
+        const int back_x=current==Page::SidePreview?int(presentation::game_x(storage::config.game_position))+6:6;
         const auto back_color=title_focus?ui::cyan:ui::dim;
-        ui::box(out,6,6,26,1,back_color); ui::box(out,6,31,26,1,back_color);
-        ui::box(out,6,7,1,24,back_color); ui::box(out,31,7,1,24,back_color);
-        ui::text_centered(out,"<",14,6,26,title_focus?ui::cyan:ui::grey,12);
+        ui::box(out,back_x,6,26,1,back_color); ui::box(out,back_x,31,26,1,back_color);
+        ui::box(out,back_x,7,1,24,back_color); ui::box(out,back_x+25,7,1,24,back_color);
+        ui::text_centered(out,"<",back_x+8,6,26,title_focus?ui::cyan:ui::grey,12);
         const auto color=title_focus?ui::dim:background_confirmed?ui::rgb(70,220,100):ui::cyan;
         ui::box(out,0,0,320,1,color); ui::box(out,0,239,320,1,color);
         ui::box(out,0,0,1,240,color); ui::box(out,319,0,1,240,color);
@@ -776,12 +832,7 @@ void draw(uint16_t *out) {
         const auto frame_color=title_focus?ui::dim:palette_confirmed?green:ui::cyan;
         ui::box(out,128,64,184,140,frame_color);
         // Decode directly into the caller-owned UI frame; no image SRAM cache.
-        unsigned pixel=0;
-        for(auto run:presentation::palette_sample) {
-            const auto color=colors[run&63];
-            for(unsigned n=0;n<unsigned(run>>6)+1;++n,++pixel)
-                out[(66+pixel/180)*320+130+pixel%180]=color;
-        }
+        presentation::draw_palette_sample(out,130,66,colors,76,104,180,136);
         const char *hint=transitioning()?message:title_focus?"A: back   Down: preview":"Left/right: preview   A: apply   B: back";
         ui::text_centered(out,hint,8,bottom,bar,bar_text,304);
         return;
@@ -795,11 +846,12 @@ void draw(uint16_t *out) {
         const bool focus=!sidebar_focus && !title_focus && i==row_focus && view!=Page::About && !searching;
         if(focus) {ui::rounded_box(out,left,y+1,306-left,22,5,highlight); ui::box(out,left+2,y+6,2,12,ui::cyan);}
         if(i+1<last) ui::box(out,label_x,y+23,298-label_x,1,separator);
-        const int value_right=view==Page::Backgrounds?273:285;
+        const bool image_list=view==Page::Backgrounds || view==Page::SideBackgrounds;
+        const int value_right=image_list?273:285;
         const int value_width=std::min(ui::width(row.value),std::max(0,value_right-label_x-12));
         const int label_right=row.value[0]?value_right-value_width-8:row.mark!=Mark::None?275:row.arrow?287:299;
         ui::text_centered(out,row.label,label_x,y,24,!row.enabled?ui::dim:focus?ui::white:ui::grey,label_right-label_x);
-        if(row.value[0]) ui::text_centered(out,row.value,value_right-value_width,y,24,view==Page::Backgrounds?ui::rgb(76,84,92):ui::cyan,value_width);
+        if(row.value[0]) ui::text_centered(out,row.value,value_right-value_width,y,24,image_list?ui::rgb(76,84,92):ui::cyan,value_width);
         if(row.mark!=Mark::None) ui::circle(out,285,y+12,4,row.mark==Mark::On?green:ui::rgb(100,100,100));
         if(row.arrow) ui::text_centered(out,">",295,y,24,ui::orange,10);
     }

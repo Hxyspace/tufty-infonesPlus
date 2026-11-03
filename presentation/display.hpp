@@ -2,6 +2,7 @@
 #include "nes_palette.hpp"
 #include <cstdint>
 #include "game_frame.hpp"
+#include "game_view.hpp"
 namespace display {
 constexpr int width=320, height=240;
 extern uint16_t *menu_buffers[2];
@@ -15,7 +16,7 @@ presentation::GameFrame &game_buffer();
 presentation::GameFrame &present_game();
 // core0 starts only after its library UI request completed; ends before
 // requesting a UI frame. That completed UI boundary drains stale game work.
-void begin_game(presentation::Palette palette=presentation::Palette::Current);
+void begin_game(presentation::Palette palette=presentation::Palette::Current,presentation::GameView view={});
 void end_game();
 void pause(bool enabled);
 bool paused();

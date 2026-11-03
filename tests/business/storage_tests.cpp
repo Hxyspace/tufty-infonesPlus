@@ -175,7 +175,7 @@ int main(int argc,char **argv) {
     bool idle_off=argc==4 && std::string(argv[3])=="idle_off";
     bool bad_idle=argc==4 && std::string(argv[3])=="bad_idle";
     const bool bad_palette=scenario=="bad_palette" || scenario=="bad_palette_type";
-    const bool bad_background=scenario=="bad_background" || scenario=="bad_background_type";
+    const bool bad_background=scenario=="bad_background" || scenario=="bad_background_type" || scenario=="bad_game_position" || scenario=="bad_side_background" || scenario=="bad_fps";
     bool custom_ble=argc==4 && (std::string(argv[3])=="ble" || scenario.rfind("gamepad_",0)==0);
     bool bad_peer=argc==4 && std::string(argv[3])=="bad_peer";
     bool bad_ble=argc==4 && std::string(argv[3])=="bad_ble";
@@ -188,6 +188,9 @@ int main(int argc,char **argv) {
     if(scenario=="duplicate_peer") ble="\"ble_whitelist\":[{\"mac\":\"AA:BB:CC:DD:EE:FF\",\"random\":false},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"random\":false}]";
     if(bad_palette) ble=scenario=="bad_palette"?"\"nes_palette\":\"unknown\"":"\"nes_palette\":2";
     if(bad_background) ble=scenario=="bad_background"?"\"menu_background\":\"/system/roms/game.565\"":"\"menu_background\":2";
+    if(scenario=="bad_game_position") ble="\"game_position\":\"middle\"";
+    if(scenario=="bad_side_background") ble="\"side_backgrounds\":{\"left\":42}";
+    if(scenario=="bad_fps") ble="\"fps_monitor\":1";
     if(!blank) fixture_state(corrupt,idle_off?"0":bad_idle?"86401":nullptr,ble);
     if(scenario.rfind("reset",0)==0) {
         storage::init(); assert(storage::mounted());
@@ -544,6 +547,10 @@ int main(int argc,char **argv) {
     storage::config.menu_sleep_seconds=0;
     storage::config.palette=presentation::Palette::Unsaturated;
     std::strcpy(storage::config.menu_background,"/system/assets/background/Missing image.565");
+    storage::config.game_position=presentation::Position::Right;storage::config.fps_monitor=true;
+    std::strcpy(storage::config.side_backgrounds[0],"/rom/side-background/center/Same.565");
+    std::strcpy(storage::config.side_backgrounds[1],"/system/assets/side-background/side/Pair.565");
+    std::strcpy(storage::config.side_backgrounds[2],"/rom/side-background/side/Moon fox.565");
     storage::config.ble_enabled=false; storage::config.serial_enabled=false;
     storage::config.ble_scan_uuid=0x1812;
     storage::config.ble={}; bluetooth::Peer key;
@@ -560,6 +567,19 @@ int main(int argc,char **argv) {
     storage::init(); assert(storage::config.palette==presentation::Palette::Unsaturated);
     assert(!std::strcmp(storage::config.menu_background,"/system/assets/background/Missing image.565"));
     assert(storage::state_ready()); // A missing image is not a corrupt configuration.
+    assert(storage::config.game_position==presentation::Position::Right && storage::config.fps_monitor);
+    assert(!std::strcmp(storage::config.side_backgrounds[0],"/rom/side-background/center/Same.565"));
+    assert(!std::strcmp(storage::config.side_backgrounds[1],"/system/assets/side-background/side/Pair.565"));
+    assert(!std::strcmp(storage::config.side_backgrounds[2],"/rom/side-background/side/Moon fox.565"));
+    // A removed resource group must not make unrelated settings read-only.
+    const auto saved_sides=storage::config;
+    std::strcpy(storage::config.side_backgrounds[1],"/rom/side-background/left/Old.565");
+    std::strcpy(storage::config.side_backgrounds[2],"/rom/side-background/center/Wrong group.565");
+    assert(storage::save());storage::init();
+    assert(storage::state_ready() && !storage::config.side_backgrounds[1][0] && !storage::config.side_backgrounds[2][0]);
+    assert(storage::config.brightness==35 && storage::config.palette==presentation::Palette::Unsaturated);
+    assert(!std::strcmp(storage::config.side_backgrounds[0],saved_sides.side_backgrounds[0]));
+    storage::config=saved_sides;assert(storage::save());
     for(unsigned i=0;i<presentation::palette_count;++i) {
         const auto selected=presentation::Palette(i);
         storage::config.palette=selected;
@@ -574,6 +594,25 @@ int main(int argc,char **argv) {
     assert(storage::read_file("/state/settings.json",text,sizeof(text)-1,actual)); text[actual]=0;
     assert(std::string(text)=="{\"brightness\":42}");
     assert(!storage::read_file("/system/../state/settings.json",text,sizeof(text),actual));
+    // Even maximally escaped resource names and a full whitelist must fit the
+    // config reader's fixed window and survive a real LittleFS reload.
+    const auto normal_config=storage::config;
+    const std::string long_menu="/system/assets/background/"+std::string(251,'\"')+".565";
+    std::strcpy(storage::config.menu_background,long_menu.c_str());
+    for(unsigned i=0;i<3;++i) {
+        char directory[64];side_background::directory(directory,sizeof directory,true,presentation::Position(i));
+        const auto path=std::string(directory)+"/"+std::string(76,'\"')+".565";
+        assert(side_background::valid_path(presentation::Position(i),path.c_str()));
+        std::strcpy(storage::config.side_backgrounds[i],path.c_str());
+    }
+    for(unsigned i=1;i<bluetooth::Policy::Capacity;++i) {key.address[5]=uint8_t(i);assert(storage::config.ble.add(key));}
+    const auto maximal_config=storage::config;
+    assert(storage::save());
+    size_t config_bytes=0;assert(storage::file_size("/state/nes.json",config_bytes)==storage::FileStatus::File && config_bytes<2048);
+    storage::init();assert(storage::state_ready());
+    assert(!std::strcmp(storage::config.menu_background,maximal_config.menu_background));
+    for(unsigned i=0;i<3;++i) assert(!std::strcmp(storage::config.side_backgrounds[i],maximal_config.side_backgrounds[i]));
+    storage::config=normal_config;assert(storage::save());
     assert(std::memcmp(flash,original.data(),kState.offset)==0); // Firmware, ROMFS, FAT unchanged by State writes.
     uint32_t at;
     assert(!flashfat::disk.range(UINT32_MAX,0,1,at));

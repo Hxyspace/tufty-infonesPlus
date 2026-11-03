@@ -5,6 +5,7 @@
 #include "menu_repeat.hpp"
 #include "settings.hpp"
 #include "background.hpp"
+#include "side_background.hpp"
 #include "configuration.hpp"
 #include "controllers.hpp"
 #include "ble.hpp"
@@ -100,6 +101,12 @@ std::string value(const std::string &key) {
     if(key=="palette") return presentation::palette_id(storage::config.palette);
     if(key=="background") return storage::config.menu_background[0]?storage::config.menu_background:"default";
     if(key=="background_count") return std::to_string(background::count());
+    if(key=="game_position") return presentation::position_id(storage::config.game_position);
+    if(key=="fps_monitor") return storage::config.fps_monitor?"1":"0";
+    if(key=="side_background") {
+        const auto *path=storage::config.side_backgrounds[unsigned(storage::config.game_position)];
+        return *path?path:"black";
+    }
     if(key=="swap") return std::to_string(storage::config.swap_ab);
     if(key=="te") return std::to_string(display::te_requested());
     if(key=="dirty") return std::to_string(configuration::changed());
@@ -189,14 +196,25 @@ void game_input(uint8_t &a,uint8_t &b,bool &quit) {
     quit=!running || ((pad.controller.keys|pad.pressed)&gamepad::KeyHome);
 }
 uint16_t game_palette[512];
+presentation::GameView game_view;
+presentation::FpsMonitor fps_monitor;
 void game_line(unsigned y,const uint16_t *pixels,uint8_t mask,bool pal) {
-    for(unsigned x=0;x<256;++x) screen[y*320+x+32]=game_palette[presentation::pixel_token(pixels[x],mask,pal)];
+    for(unsigned x=0;x<256;++x) screen[y*320+x+presentation::game_x(game_view.position)]=game_palette[presentation::pixel_token(pixels[x],mask,pal)];
 }
 presentation::FrameClock clock;
 void game_frame() {
     try {
         if(callback_error) return;
-        show(screen.data()); ++game_frames; advance();
+        const auto left=presentation::game_x(game_view.position);
+        for(unsigned x=0;x<320;++x) {
+            if(x>=left && x<left+256) continue;
+            uint16_t column[240];const auto *image=game_view.column(x);
+            for(unsigned y=0;y<240;++y) column[y]=image?image[y]:0;
+            fps_monitor.column(x,column);
+            for(unsigned y=0;y<240;++y) screen[y*320+x]=column[y];
+        }
+        show(screen.data()); ++game_frames;
+        fps_monitor.completed(uint32_t(game_frames),uint32_t(micros()));advance();
         wait_until(clock.next(uint32_t(micros())));
     } catch(...) {callback_error=std::current_exception(); running=false;}
 }
@@ -220,6 +238,8 @@ void run_game(int index) {
     game_timing=cartridge.timing;
     for(unsigned i=0;i<512;++i) game_palette[i]=presentation::token_rgb565(i,storage::config.palette);
     screen.fill(0); playing=true; game_frames=0;
+    side_background::prepare();game_view=side_background::view();
+    fps_monitor.reset(game_view.position,game_view.fps);
     const nes::Host host{safe_service,game_input,game_line,game_frame,game_message,game_started};
     const bool ok=nes::infones_adapter::run(host,data,bytes,&error);
     playing=false;

@@ -151,5 +151,27 @@ int main(){
   display::begin_game(presentation::Palette::Sony);
   fill(1);display::present_game();wait_gate(12);edge();wait_end(11);
   check_game(10,1,presentation::Palette::Sony);
+  // Actual column conversion preserves every game pixel at all three offsets.
+  // A 32-wide image repeats; a 64-wide image splits without mirroring.
+  std::array<uint16_t,64*240> side;
+  for(unsigned x=0;x<64;++x) for(unsigned y=0;y<240;++y) side[x*240+y]=uint16_t(0x8000+x*240+y);
+  unsigned gate=12,finished=11;
+  for(auto p:{presentation::Position::Center,presentation::Position::Left,presentation::Position::Right}) {
+    for(unsigned side_width:{32u,64u}) {
+      if(p!=presentation::Position::Center && side_width==32) continue;
+      display::end_game();menu_thread=present(0);wait_gate(++gate);edge();wait_end(++finished);menu_thread.join();
+      const bool hud=p==presentation::Position::Right;
+      display::begin_game(presentation::Palette::Current,{p,side.data(),side_width,hud});
+      fill(2);display::present_game();wait_gate(++gate);edge();wait_end(++finished);
+      std::lock_guard<std::mutex> lock(mutex);
+      const unsigned left=presentation::game_x(p);
+      for(unsigned x=0;x<320;++x) for(unsigned y=0;y<240;++y) {
+        if(hud && x>=8 && x<56 && ((y>=198 && y<205) || (y>=214 && y<221))) continue;
+        const uint16_t expected=x>=left && x<left+256?presentation::token_rgb565(2):side[((x<left?x:x-256)%side_width)*240+y];
+        assert(images.back()[x*240+y]==__builtin_bswap16(expected));
+      }
+      if(hud) assert(images.back()[8*240+198]==__builtin_bswap16(uint16_t(0xbdf7)));
+    }
+  }
   stop.store(true);cv.notify_all();consumer.join();
 }

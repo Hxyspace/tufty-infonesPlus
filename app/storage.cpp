@@ -102,6 +102,10 @@ static void load_config() {
     auto *swap=cJSON_GetObjectItemCaseSensitive(root,"swap_ab");
     auto *palette=cJSON_GetObjectItemCaseSensitive(root,"nes_palette");
     auto *background=cJSON_GetObjectItemCaseSensitive(root,"menu_background");
+    auto *position=cJSON_GetObjectItemCaseSensitive(root,"game_position");
+    auto *fps=cJSON_GetObjectItemCaseSensitive(root,"fps_monitor");
+    auto *sides=cJSON_GetObjectItemCaseSensitive(root,"side_backgrounds");
+    auto game_position=presentation::Position::Center;
     auto selected_palette=presentation::Palette::Current;
     auto *idle=cJSON_GetObjectItemCaseSensitive(root,"menu_sleep_seconds");
     auto *ble=cJSON_GetObjectItemCaseSensitive(root,"ble_enabled");
@@ -112,6 +116,8 @@ static void load_config() {
     uint8_t address[6];
     uint16_t scan_uuid=config.ble_scan_uuid;
     if((id && (!cJSON_IsNumber(id) || id->valuedouble!=id->valueint || id->valueint<1 || id->valueint>65535)) ||
+       (position && (!cJSON_IsString(position) || !presentation::parse_position(position->valuestring,game_position))) ||
+       (fps && !cJSON_IsBool(fps)) || (sides && !cJSON_IsObject(sides)) ||
        (level && (!cJSON_IsNumber(level) || level->valuedouble!=level->valueint || level->valueint<1 || level->valueint>100)) ||
        (swap && !cJSON_IsBool(swap)) ||
        (palette && (!cJSON_IsString(palette) || !presentation::parse_palette(palette->valuestring,selected_palette))) ||
@@ -123,6 +129,13 @@ static void load_config() {
        (uuid && (!cJSON_IsString(uuid) || !bluetooth::uuid16(uuid->valuestring,scan_uuid))) ||
        (peer && (!cJSON_IsString(peer) || (peer->valuestring[0] && !bluetooth::address(peer->valuestring,address))))) {
         writable_config=false; cJSON_Delete(root); return;
+    }
+    for(unsigned i=0;sides && i<3;++i) {
+        const auto p=presentation::Position(i);
+        auto *value=cJSON_GetObjectItemCaseSensitive(sides,presentation::position_id(p));
+        if(value && !cJSON_IsString(value)) {
+            writable_config=false;cJSON_Delete(root);return;
+        }
     }
     bluetooth::Policy policy;
     auto *mode=cJSON_GetObjectItemCaseSensitive(root,"ble_mode");
@@ -162,6 +175,15 @@ static void load_config() {
     if(swap) config.swap_ab=cJSON_IsTrue(swap);
     config.palette=selected_palette;
     if(background) std::snprintf(config.menu_background,sizeof config.menu_background,"%s",background->valuestring);
+    config.game_position=game_position;
+    if(fps) config.fps_monitor=cJSON_IsTrue(fps);
+    std::memset(config.side_backgrounds,0,sizeof config.side_backgrounds);
+    for(unsigned i=0;sides && i<3;++i) {
+        const auto *value=cJSON_GetObjectItemCaseSensitive(sides,presentation::position_id(presentation::Position(i)));
+        // Unusable artwork paths fall back to black without disabling settings saves.
+        if(value && side_background::valid_path(presentation::Position(i),value->valuestring))
+            std::snprintf(config.side_backgrounds[i],sizeof config.side_backgrounds[i],"%s",value->valuestring);
+    }
     if(idle) config.menu_sleep_seconds=idle->valueint;
     if(ble) config.ble_enabled=cJSON_IsTrue(ble);
     if(serial) config.serial_enabled=cJSON_IsTrue(serial);
@@ -482,12 +504,18 @@ bool save() {
         cJSON_AddBoolToObject(root,"swap_ab",config.swap_ab) &&
         cJSON_AddStringToObject(root,"nes_palette",presentation::palette_id(config.palette)) &&
         cJSON_AddStringToObject(root,"menu_background",config.menu_background) &&
+        cJSON_AddStringToObject(root,"game_position",presentation::position_id(config.game_position)) &&
+        cJSON_AddBoolToObject(root,"fps_monitor",config.fps_monitor) &&
         cJSON_AddNumberToObject(root,"menu_sleep_seconds",config.menu_sleep_seconds) &&
         cJSON_AddBoolToObject(root,"serial_enabled",config.serial_enabled) &&
         cJSON_AddBoolToObject(root,"ble_enabled",config.ble_enabled) &&
         cJSON_AddStringToObject(root,"ble_mode",config.ble.mode==bluetooth::Mode::WhitelistOnly?"whitelist":"auto") &&
         cJSON_AddNumberToObject(root,"ble_preferred",config.ble.preferred==255?-1:config.ble.preferred) &&
         cJSON_AddStringToObject(root,"ble_scan_uuid",uuid);
+    auto *sides=cJSON_AddObjectToObject(root,"side_backgrounds");
+    ok=ok && sides;
+    for(unsigned i=0;ok && i<3;++i)
+        ok=cJSON_AddStringToObject(sides,presentation::position_id(presentation::Position(i)),config.side_backgrounds[i]);
     auto *list=cJSON_AddArrayToObject(root,"ble_whitelist");
     ok=ok && list;
     for(unsigned i=0;ok && i<config.ble.count;++i) {

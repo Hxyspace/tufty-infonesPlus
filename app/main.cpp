@@ -19,6 +19,7 @@
 #include "ble.hpp"
 #include "controllers.hpp"
 #include "diagnostics.hpp"
+#include "side_background.hpp"
 #include "memory_stats.hpp"
 #include <algorithm>
 #include <cmath>
@@ -122,7 +123,8 @@ static void run_game(int index) {
     if(!menu::suspend(index)) return;
     game_timing=image.timing;
     const nes::Host host{tufty_service,game_input,game_line,game_frame,game_message,game_started};
-    SCREEN=&display::game_buffer();display::begin_game(storage::config.palette);
+    side_background::prepare();
+    SCREEN=&display::game_buffer();display::begin_game(storage::config.palette,side_background::view());
     diagnostics::reset();diagnostics::playing=true;
     if(!nes::infones_adapter::run(host,rom_data,rom_bytes,&error)) {
         std::printf("NES: %s\n",error?error:"Core failed");

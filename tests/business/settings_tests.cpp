@@ -7,6 +7,7 @@
 #include "ui.hpp"
 #include "battery.hpp"
 #include "background.hpp"
+#include "side_background.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -35,7 +36,7 @@ static ble::Status radio{ble::State::Scanning,true,false,false,{},0};
 static bluetooth::Candidate found[16];
 static size_t found_count=0;
 static gamepad::Receiver ble_pad;
-struct BackgroundFile {std::string path; uint32_t bytes=320*240*2; uint16_t color=0; bool fail=false;};
+struct BackgroundFile {std::string path; uint32_t bytes=320*240*2; uint16_t color=0; bool fail=false,ramp=false;};
 static std::vector<BackgroundFile> backgrounds;
 static bool background_scan_ok=true;
 static void dispatch_input(uint32_t now) {
@@ -65,6 +66,7 @@ bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {
         if(file.bytes>capacity) return false;
         actual=file.bytes;
         std::fill_n(static_cast<uint16_t *>(out),actual/2,file.color);
+        if(file.ramp) for(size_t i=0;i<actual/2;++i) static_cast<uint16_t *>(out)[i]=uint16_t(file.color+i);
         if(file.fail) {actual/=2; return false;}
         return true;
     }
@@ -217,7 +219,7 @@ int main() {
     assert(bright==80);
     input::hub.local(0); dispatch_input(++now);
     snapshot("display");
-    settings::draw(frame.data()); assert(frame[158*320+285]==ui::rgb(70,220,100));
+    settings::draw(frame.data()); assert(frame[182*320+285]==ui::rgb(70,220,100));
     focus(0); press(input::Previous); // Left changes panes, never brightness.
     assert(bright==80 && settings::page()==settings::Page::Root);
     press(input::Next); assert(settings::page()==settings::Page::Display);
@@ -230,14 +232,14 @@ int main() {
     back(); assert(settings::page()==settings::Page::Display);
     back(); assert(saves==0); back(); assert(saves==0 && settings::transitioning());
     present(); assert(saves==1 && settings::take_exit()==settings::Exit::Library && !usb::dirty);
-    root(); enter(0,settings::Page::Display); focus(3);
+    root(); enter(0,settings::Page::Display); focus(4);
     press(input::Next); assert(requested_te); // Right does not toggle TE.
     press(input::Previous); assert(requested_te && settings::page()==settings::Page::Root);
-    press(input::Next); assert(settings::focus()==3);
+    press(input::Next); assert(settings::focus()==4);
     press(input::Confirm);
     assert(!requested_te && !configuration::changed());
     press(input::Next); assert(!requested_te);
-    settings::draw(frame.data()); assert(frame[158*320+285]==ui::rgb(100,100,100));
+    settings::draw(frame.data()); assert(frame[182*320+285]==ui::rgb(100,100,100));
     back(); back(); present();
     assert(saves==1 && settings::take_exit()==settings::Exit::Library);
     // Failed writes preserve runtime values and baseline; cancellation never silently saves.
@@ -791,4 +793,40 @@ int main() {
     assert(background::valid_path("/system/assets/background/Space name.565"));
     assert(background::valid_path("/rom/background/a.565"));
     backgrounds.clear(); storage::config.menu_background[0]=0; configuration::init();
+    backgrounds={{"/rom/side-background/center/Same.565",15360,0x1111},
+        {"/system/assets/side-background/center/Pair.565",30720,0x2222,false,true},
+        {"/rom/side-background/side/Left.565",30720,0x3333},
+        {"/rom/side-background/side/Right.565",30720,0x4444},
+        {"/rom/side-background/side/Too narrow.565",15360,0xffff}};
+    storage::config.game_position=presentation::Position::Center;
+    root();enter(0,settings::Page::Display);enter(3,settings::Page::GameDisplay);
+    focus(1);press(input::PageNext);assert(settings::focus()==1); // Center has no FPS row.
+    enter(1,settings::Page::SideBackgrounds);assert(side_background::count()==3);
+    enter(2,settings::Page::SidePreview);present();assert(side_background::view().width==32);
+    assert(!storage::config.side_backgrounds[0][0]); // Preview is not an application.
+    press(input::Confirm);assert(std::strstr(storage::config.side_backgrounds[0],"Same.565"));
+    press(input::Previous);present();assert(side_background::view().width==64);
+    assert(side_background::view().column(288)[100]==uint16_t(0x2222+100*64+32));
+    back();back();assert(settings::page()==settings::Page::GameDisplay);
+    enter(0,settings::Page::GamePosition);enter(1,settings::Page::GameDisplay);
+    assert(storage::config.game_position==presentation::Position::Left);
+    enter(1,settings::Page::SideBackgrounds);assert(side_background::count()==3);
+    enter(1,settings::Page::SidePreview);press(input::Confirm);back();back();
+    focus(2);press(input::Confirm);assert(storage::config.fps_monitor);
+    enter(0,settings::Page::GamePosition);enter(0,settings::Page::GameDisplay);
+    focus(1);press(input::PageNext);assert(settings::focus()==1);
+    enter(1,settings::Page::SideBackgrounds);assert(settings::focus()==2);
+    enter(0,settings::Page::SidePreview);press(input::Confirm);assert(!storage::config.side_backgrounds[0][0]);
+    assert(storage::config.fps_monitor && !side_background::view().fps);
+    assert(std::strstr(storage::config.side_backgrounds[1],"Left.565"));
+    home();present();settings::take_exit();assert(!configuration::changed());
+    storage::config.game_position=presentation::Position::Left;
+    side_background::prepare();auto side=side_background::view();
+    assert(side.width==64 && side.column(256)[100]==0x3333);
+    storage::config.game_position=presentation::Position::Right;
+    assert(side_background::open() && side_background::count()==3);
+    assert(side_background::preview(1));side_background::apply();side_background::prepare();
+    assert(side_background::view().column(0)[100]==0x3333 && side_background::view().fps);
+    backgrounds[2].fail=true;side_background::prepare();assert(!side_background::view().pixels);
+    backgrounds.clear();side_background::close();
 }

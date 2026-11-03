@@ -2,6 +2,7 @@
 #include "presentation/pixels.hpp"
 #include "presentation/game_frame.hpp"
 #include "presentation/frame_rate.hpp"
+#include "presentation/game_view.hpp"
 #include "platform/tufty2350/arena.hpp"
 #include "platform/tufty2350/display_timing.hpp"
 #include <algorithm>
@@ -11,6 +12,23 @@
 #include <vector>
 int main(){
   using namespace presentation;
+  // Independent production/completion rates survive timer and sequence wrap.
+  FpsMonitor fps;fps.reset(Position::Right,true);
+  uint32_t now=0xffff0000u,sequence=0xfffffff0u;fps.completed(sequence,now);
+  for(unsigned i=0;i<30;++i) {now+=33334;sequence+=2;fps.completed(sequence,now);}
+  assert(fps.nes_x10()>=599 && fps.nes_x10()<=600);
+  assert(fps.lcd_x10()>=299 && fps.lcd_x10()<=300);
+  for(unsigned i=0;i<30;++i) {now+=33334;++sequence;fps.completed(sequence,now);}
+  assert(fps.nes_x10()>=299 && fps.nes_x10()<=300);
+  std::array<uint16_t,240> column;column.fill(0x1234);
+  fps.column(64,column.data());assert(std::all_of(column.begin(),column.end(),[](auto p){return p==0x1234;}));
+  fps.column(8,column.data());assert(column[197]==0x1234 && column[198]==0xbdf7 && column[205]==0x1234);
+  for(auto p:column) assert(p==0x1234 || p==0xbdf7); // Only glyph pixels change; no black backing.
+  fps.reset(Position::Center,true);column.fill(0x1234);fps.column(8,column.data());
+  assert(std::all_of(column.begin(),column.end(),[](auto p){return p==0x1234;}));
+  fps.reset(Position::Left,false);column.fill(0x1234);fps.column(272,column.data());
+  assert(std::all_of(column.begin(),column.end(),[](auto p){return p==0x1234;}));
+  fps.reset(Position::Right,true);assert(!fps.nes_x10() && !fps.lcd_x10());
   FrameClock clock;
   for(auto cpu:{1789773u,1662607u,1773448u}){
     unsigned dots=cpu==1789773?341*262:cpu==1662607?341*312*5:341*312;

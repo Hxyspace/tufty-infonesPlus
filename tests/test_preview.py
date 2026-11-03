@@ -75,16 +75,18 @@ def main():
 20 release Down
 21 press Down
 22 release Down
-23 press Z
-24 release Z
-25 expect te 0
-25 shot display.bmp
-26 press H
-27 release H
-30 expect view library
-30 expect dirty 0
-30 expect selected 0
-31 quit
+23 press Down
+24 release Down
+25 press Z
+26 release Z
+27 expect te 0
+27 shot display.bmp
+28 press H
+29 release H
+32 expect view library
+32 expect dirty 0
+32 expect selected 0
+33 quit
 """)
     run("reload", """
 0 expect brightness 85
@@ -233,55 +235,57 @@ def main():
 17 release K
 18 press K
 19 release K
-20 press W
-21 release W
-21 expect te 0
-22 press Q
-23 release Q
-25 press K
-26 release K
-28 press K
-29 release K
-31 press K
-32 release K
-34 press W
-35 release W
-36 expect page 10
-36 press K
-37 release K
-37 press W
-38 release W
-40 press I
-41 release I
-43 press W
-44 release W
+20 press K
+21 release K
+22 press W
+23 release W
+23 expect te 0
+24 press Q
+25 release Q
+27 press K
+28 release K
+30 press K
+31 release K
+33 press K
+34 release K
+36 press W
+37 release W
+38 expect page 10
+38 press K
+39 release K
+39 press W
+40 release W
+42 press I
+43 release I
+45 press W
+46 release W
 """
     run("disk-from-settings", disk_entry + """
-46 expect view disk
-46 expect dirty 0
-46 expect brightness 95
-48 shot disk-ready.bmp
-50 disk-state transferring
-51 shot disk-transferring.bmp
-52 expect disk_state transferring
-53 disk-state unavailable
-54 shot disk-unavailable.bmp
-55 expect disk_state unavailable
-56 disk-state failed
-57 shot disk-failed.bmp
-58 expect disk_state failed
-60 disk-state ejected
-61 press H
-62 shot disk-ejected.bmp
-73 expect view disk
-78 expect view disk
-79 release H
-81 expect view library
-81 expect selected 1
-81 expect te 1
-81 expect dirty 0
-81 shot disk-return.bmp
-83 quit
+48 expect view disk
+48 expect dirty 0
+48 expect brightness 95
+50 shot disk-ready.bmp
+52 disk-state transferring
+53 shot disk-transferring.bmp
+54 expect disk_state transferring
+55 disk-state unavailable
+56 shot disk-unavailable.bmp
+57 expect disk_state unavailable
+58 disk-state failed
+59 shot disk-failed.bmp
+60 expect disk_state failed
+62 disk-state ejected
+63 press H
+64 shot disk-ejected.bmp
+75 expect view disk
+80 expect view disk
+81 release H
+83 expect view library
+83 expect selected 1
+83 expect te 1
+83 expect dirty 0
+83 shot disk-return.bmp
+85 quit
 """, settings=True)
     run("disk-write-animation", """
 1 disk-state transferring
@@ -292,22 +296,22 @@ def main():
     assert (work / "disk-write-a.bmp").read_bytes() != (work / "disk-write-b.bmp").read_bytes()
     # A simulated reboot must honor "continue without saving": keep the
     # previously saved 95%, rather than silently persisting the new 100%.
-    run("disk-save-bypass", disk_entry.replace("43 press W", "42 save-failure on\n43 press W") + """
-46 expect view settings
-46 expect dirty 1
-46 expect brightness 100
-47 press K
-48 release K
-50 press W
-51 release W
-55 expect view disk
-55 expect brightness 95
-55 expect dirty 0
-56 disk-state ejected
-74 expect view library
-74 expect brightness 95
-74 expect selected 1
-75 quit
+    run("disk-save-bypass", disk_entry.replace("45 press W", "44 save-failure on\n45 press W") + """
+48 expect view settings
+48 expect dirty 1
+48 expect brightness 100
+49 press K
+50 release K
+52 press W
+53 release W
+57 expect view disk
+57 expect brightness 95
+57 expect dirty 0
+58 disk-state ejected
+76 expect view library
+76 expect brightness 95
+76 expect selected 1
+77 quit
 """, settings=True)
     run("disk-startup", """
 0 expect view disk
@@ -697,6 +701,48 @@ def main():
 340 expect view library
 341 quit
 """, settings=True)
+    # The production Settings flow persists each position's own artwork and
+    # shares the same HUD compositor with real gameplay in the SDL runtime.
+    previous_position=0
+    for position,row,filename in (("left",1,"Star map"),("center",0,"Brass"),("right",2,"Moon fox")):
+        lines=["0 source serial"];tick=2
+        def emit(command):
+            nonlocal tick
+            lines.append(f"{tick} {command}");tick+=2
+        def tap(key):
+            emit("press "+key);emit("release "+key)
+        tap("Z")
+        for _ in range(3): tap("Down")
+        tap("Z");emit("expect page 20")
+        tap("Z");emit("expect page 21")
+        for _ in range(abs(row-previous_position)): tap("Down" if row>previous_position else "Up")
+        tap("Z");emit("expect game_position "+position)
+        if position=="left":
+            tap("Down");tap("Down");tap("Z");tap("Up")
+        else: tap("Down")
+        tap("Z");emit("expect page 22")
+        group="center" if position=="center" else "side"
+        names=sorted((p.stem for p in (source/"rom/side-background"/group).glob("*.565")),key=str.casefold)
+        for _ in range(names.index(filename)+1): tap("Down")
+        tap("Z");emit("expect page 23")
+        emit("expect side_background black")
+        emit("shot side-"+position+"-preview.bmp")
+        tap("Z");emit("expect side_background /rom/side-background/"+group+"/"+filename+".565")
+        tap("X");tap("X")
+        emit("expect fps_monitor 1")
+        tap("H");emit("expect view library");emit("expect dirty 0")
+        tap("Right");tap("Z")
+        tick+=150
+        emit("expect view game");emit("shot side-"+position+"-game.bmp")
+        tap("H");emit("expect view library");emit("quit")
+        run("side-"+position,"\n".join(lines),settings=True)
+        previous_position=row
+    run("side-reload","""
+0 expect game_position right
+0 expect fps_monitor 1
+0 expect side_background /rom/side-background/side/Moon fox.565
+1 quit
+""")
     # Isolated background fixtures: never edit the user's resource collection.
     background_source=Path(temporary.name)/"background-resources"
     shutil.copytree(source,background_source)

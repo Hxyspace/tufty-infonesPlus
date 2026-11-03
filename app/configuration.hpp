@@ -9,6 +9,8 @@ enum class SaveResult { Unchanged, Saved, Unavailable, Failed };
 inline storage::Config baseline;
 inline bool trusted=false;
 inline bool equal(const storage::Config &a,const storage::Config &b) {
+    if(a.game_position!=b.game_position || a.fps_monitor!=b.fps_monitor) return false;
+    for(unsigned i=0;i<3;++i) if(std::strcmp(a.side_backgrounds[i],b.side_backgrounds[i])) return false;
     if(a.controller!=b.controller || a.brightness!=b.brightness || a.palette!=b.palette ||
        std::strcmp(a.menu_background,b.menu_background) || a.swap_ab!=b.swap_ab ||
        a.serial_enabled!=b.serial_enabled || a.ble_enabled!=b.ble_enabled ||
