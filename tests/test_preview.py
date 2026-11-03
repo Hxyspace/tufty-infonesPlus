@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -72,16 +73,18 @@ def main():
 18 release Down
 19 press Down
 20 release Down
-21 press Z
-22 release Z
-23 expect te 0
-23 shot display.bmp
-24 press H
-25 release H
-28 expect view library
-28 expect dirty 0
-28 expect selected 0
-29 quit
+21 press Down
+22 release Down
+23 press Z
+24 release Z
+25 expect te 0
+25 shot display.bmp
+26 press H
+27 release H
+30 expect view library
+30 expect dirty 0
+30 expect selected 0
+31 quit
 """)
     run("reload", """
 0 expect brightness 85
@@ -109,26 +112,28 @@ def main():
 3 release Z
 5 press Down
 6 release Down
-8 press Z
-9 release Z
-10 expect page 16
-10 shot palette-current.bmp
-11 press Right
-12 release Right
-13 shot palette-unsaturated.bmp
-13 expect palette current
-13 expect dirty 0
-14 press Z
-15 release Z
-16 expect palette unsaturated-final
-16 expect dirty 1
-16 expect page 16
-16 shot palette-applied.bmp
-17 press H
-18 release H
-21 expect view library
-21 expect dirty 0
-22 quit
+7 press Down
+8 release Down
+9 press Z
+10 release Z
+11 expect page 16
+11 shot palette-current.bmp
+12 press Right
+13 release Right
+14 shot palette-unsaturated.bmp
+14 expect palette current
+14 expect dirty 0
+15 press Z
+16 release Z
+17 expect palette unsaturated-final
+17 expect dirty 1
+17 expect page 16
+17 shot palette-applied.bmp
+18 press H
+19 release H
+22 expect view library
+22 expect dirty 0
+23 quit
 """, settings=True)
     run("palette-game", """
 0 source serial
@@ -226,55 +231,57 @@ def main():
 15 release K
 16 press K
 17 release K
-18 press W
-19 release W
-19 expect te 0
-20 press Q
-21 release Q
-23 press K
-24 release K
-26 press K
-27 release K
-29 press K
-30 release K
-32 press W
-33 release W
-34 expect page 10
-34 press K
-35 release K
-35 press W
-36 release W
-38 press I
-39 release I
-41 press W
-42 release W
+18 press K
+19 release K
+20 press W
+21 release W
+21 expect te 0
+22 press Q
+23 release Q
+25 press K
+26 release K
+28 press K
+29 release K
+31 press K
+32 release K
+34 press W
+35 release W
+36 expect page 10
+36 press K
+37 release K
+37 press W
+38 release W
+40 press I
+41 release I
+43 press W
+44 release W
 """
     run("disk-from-settings", disk_entry + """
 46 expect view disk
 46 expect dirty 0
 46 expect brightness 95
-46 shot disk-ready.bmp
-48 disk-state transferring
-49 shot disk-transferring.bmp
-50 expect disk_state transferring
-51 disk-state unavailable
-52 shot disk-unavailable.bmp
-53 expect disk_state unavailable
-54 disk-state failed
-55 shot disk-failed.bmp
-56 expect disk_state failed
-58 disk-state ejected
-59 press H
-60 shot disk-ejected.bmp
-71 expect view disk
-76 expect view disk
-77 release H
-79 expect view library
-79 expect selected 1
-79 expect te 1
-79 expect dirty 0
-79 shot disk-return.bmp
-81 quit
+48 shot disk-ready.bmp
+50 disk-state transferring
+51 shot disk-transferring.bmp
+52 expect disk_state transferring
+53 disk-state unavailable
+54 shot disk-unavailable.bmp
+55 expect disk_state unavailable
+56 disk-state failed
+57 shot disk-failed.bmp
+58 expect disk_state failed
+60 disk-state ejected
+61 press H
+62 shot disk-ejected.bmp
+73 expect view disk
+78 expect view disk
+79 release H
+81 expect view library
+81 expect selected 1
+81 expect te 1
+81 expect dirty 0
+81 shot disk-return.bmp
+83 quit
 """, settings=True)
     run("disk-write-animation", """
 1 disk-state transferring
@@ -285,7 +292,7 @@ def main():
     assert (work / "disk-write-a.bmp").read_bytes() != (work / "disk-write-b.bmp").read_bytes()
     # A simulated reboot must honor "continue without saving": keep the
     # previously saved 95%, rather than silently persisting the new 100%.
-    run("disk-save-bypass", disk_entry.replace("41 press W", "40 save-failure on\n41 press W") + """
+    run("disk-save-bypass", disk_entry.replace("43 press W", "42 save-failure on\n43 press W") + """
 46 expect view settings
 46 expect dirty 1
 46 expect brightness 100
@@ -690,6 +697,89 @@ def main():
 340 expect view library
 341 quit
 """, settings=True)
+    # Isolated background fixtures: never edit the user's resource collection.
+    background_source=Path(temporary.name)/"background-resources"
+    shutil.copytree(source,background_source)
+    shutil.rmtree(background_source/"rom/background",ignore_errors=True)
+    (background_source/"rom/background").mkdir()
+    shutil.copyfile(source/"rom/background/background.565",background_source/"rom/background/background.565")
+    external=background_source/"system/assets/background"
+    shutil.rmtree(external,ignore_errors=True); external.mkdir(parents=True)
+    (external/"Aurora.565").write_bytes(b"\x1f\x00"*(320*240))
+    (external/"background.565").write_bytes(b"\x00\xf8"*(320*240))
+    (external/"invalid.565").write_bytes(bytes(100))
+    images=prepare(background_source,work/"background-images",reset=True)
+    run("background-preview", """
+0 source serial
+0 expect background default
+2 press Z
+3 release Z
+5 press Down
+6 release Down
+8 press Z
+9 release Z
+11 expect page 18
+11 expect background_count 3
+11 shot background-list.bmp
+12 press Up
+13 release Up
+15 press Z
+80 expect page 19
+80 expect background default
+80 expect dirty 0
+81 release Z
+83 shot background-external.bmp
+85 press Right
+86 release Right
+88 shot background-default.bmp
+89 expect background default
+90 press Right
+91 release Right
+93 shot background-duplicate.bmp
+94 press Z
+95 release Z
+97 expect background /system/assets/background/background.565
+97 expect dirty 1
+97 shot background-applied.bmp
+98 press X
+99 release X
+101 expect page 18
+102 press H
+103 release H
+107 expect view library
+107 expect background_count 0
+107 expect dirty 0
+108 shot background-library.bmp
+109 quit
+""",settings=True)
+    run("background-reload", """
+0 source serial
+0 expect background /system/assets/background/background.565
+2 press Z
+3 release Z
+5 press Down
+6 release Down
+8 press Z
+9 release Z
+11 expect page 18
+12 press Z
+13 release Z
+15 expect page 19
+16 press Left
+17 release Left
+19 expect background /system/assets/background/background.565
+20 press Up
+21 release Up
+23 press Z
+24 release Z
+26 expect page 18
+27 press H
+28 release H
+31 expect view library
+31 expect dirty 0
+32 expect background_count 0
+33 quit
+""",settings=True)
     for image in work.glob("*.bmp"):
         data = image.read_bytes()
         assert data[:2] == b"BM" and struct.unpack_from("<ii", data, 18) == (320, 240)

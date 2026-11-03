@@ -2,3 +2,5 @@
 *.patch -whitespace
 # Preserve imported license texts verbatim.
 licenses/** -whitespace
+# Raw RGB565 images must not undergo text conversion or textual diffs.
+*.565 binary

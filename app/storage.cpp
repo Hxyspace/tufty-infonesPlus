@@ -101,6 +101,7 @@ static void load_config() {
     auto *level=cJSON_GetObjectItemCaseSensitive(root,"brightness");
     auto *swap=cJSON_GetObjectItemCaseSensitive(root,"swap_ab");
     auto *palette=cJSON_GetObjectItemCaseSensitive(root,"nes_palette");
+    auto *background=cJSON_GetObjectItemCaseSensitive(root,"menu_background");
     auto selected_palette=presentation::Palette::Current;
     auto *idle=cJSON_GetObjectItemCaseSensitive(root,"menu_sleep_seconds");
     auto *ble=cJSON_GetObjectItemCaseSensitive(root,"ble_enabled");
@@ -114,6 +115,8 @@ static void load_config() {
        (level && (!cJSON_IsNumber(level) || level->valuedouble!=level->valueint || level->valueint<1 || level->valueint>100)) ||
        (swap && !cJSON_IsBool(swap)) ||
        (palette && (!cJSON_IsString(palette) || !presentation::parse_palette(palette->valuestring,selected_palette))) ||
+       (background && (!cJSON_IsString(background) ||
+        (background->valuestring[0] && !background::valid_path(background->valuestring)))) ||
        (idle && (!cJSON_IsNumber(idle) || idle->valuedouble!=idle->valueint || idle->valueint<0 || idle->valueint>86400)) ||
        (serial && !cJSON_IsBool(serial)) ||
        (ble && !cJSON_IsBool(ble)) || (random && !cJSON_IsBool(random)) ||
@@ -158,6 +161,7 @@ static void load_config() {
     if(level) config.brightness=level->valueint;
     if(swap) config.swap_ab=cJSON_IsTrue(swap);
     config.palette=selected_palette;
+    if(background) std::snprintf(config.menu_background,sizeof config.menu_background,"%s",background->valuestring);
     if(idle) config.menu_sleep_seconds=idle->valueint;
     if(ble) config.ble_enabled=cJSON_IsTrue(ble);
     if(serial) config.serial_enabled=cJSON_IsTrue(serial);
@@ -408,11 +412,32 @@ bool mark_library_changed() {
     const uint8_t dirty=1;
     return write_state("/state/library.dirty",&dirty,1);
 }
-bool visit_roms(Visitor visitor,void *context) {
+bool visit_files(const char *directory,Visitor visitor,void *context) {
+    if(!directory || !visitor) return false;
+    if(!std::strncmp(directory,"/rom/",5)) {
+        tufty::storage::RomView view;
+        const auto result=rom.find(directory,view);
+        using tufty::storage::RomResult;
+        if(result==RomResult::NotFound || result==RomResult::NotReady) return true;
+        if(result!=RomResult::Ok || !view.directory) return false;
+        uint32_t cursor=0; tufty::storage::RomEntry entry;
+        for(;;) {
+            const auto rc=rom.next(view,cursor,entry);
+            if(rc==RomResult::End) return true;
+            if(rc!=RomResult::Ok) return false;
+            if(!entry.view.directory && entry.name_bytes<256) {
+                char name[256]; std::memcpy(name,entry.name,entry.name_bytes); name[entry.name_bytes]=0;
+                visitor(name,entry.view.bytes,context);
+            }
+            tufty_service();
+        }
+    }
+    if(std::strncmp(directory,"/system/",8) || std::strstr(directory,"..") ||
+       std::strchr(directory,':') || std::strchr(directory,'\\')) return false;
     if(!fat_mounted) return false;
     SystemReader reader;
     DIR dir{};
-    FRESULT rc=f_opendir(&dir,"/roms");
+    FRESULT rc=f_opendir(&dir,directory+7);
     if(rc==FR_NO_PATH || rc==FR_NO_FILE) return true;
     if(rc!=FR_OK) return false;
     FILINFO info{};
@@ -422,6 +447,7 @@ bool visit_roms(Visitor visitor,void *context) {
     }
     return f_closedir(&dir)==FR_OK && rc==FR_OK;
 }
+bool visit_roms(Visitor visitor,void *context) {return visit_files("/system/roms",visitor,context);}
 bool load(size_t index,const uint8_t *&data,size_t &bytes) {
     data=nullptr; bytes=0;
     if(index>=count) {
@@ -455,6 +481,7 @@ bool save() {
         cJSON_AddNumberToObject(root,"brightness",config.brightness) &&
         cJSON_AddBoolToObject(root,"swap_ab",config.swap_ab) &&
         cJSON_AddStringToObject(root,"nes_palette",presentation::palette_id(config.palette)) &&
+        cJSON_AddStringToObject(root,"menu_background",config.menu_background) &&
         cJSON_AddNumberToObject(root,"menu_sleep_seconds",config.menu_sleep_seconds) &&
         cJSON_AddBoolToObject(root,"serial_enabled",config.serial_enabled) &&
         cJSON_AddBoolToObject(root,"ble_enabled",config.ble_enabled) &&

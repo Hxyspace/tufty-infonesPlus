@@ -6,6 +6,7 @@
 #include "menu.hpp"
 #include "ui.hpp"
 #include "battery.hpp"
+#include "background.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -34,6 +35,9 @@ static ble::Status radio{ble::State::Scanning,true,false,false,{},0};
 static bluetooth::Candidate found[16];
 static size_t found_count=0;
 static gamepad::Receiver ble_pad;
+struct BackgroundFile {std::string path; uint32_t bytes=320*240*2; uint16_t color=0; bool fail=false;};
+static std::vector<BackgroundFile> backgrounds;
+static bool background_scan_ok=true;
 static void dispatch_input(uint32_t now) {
     const auto pad=input::hub.gamepad();
     const auto keys=input::menu(pad);
@@ -49,8 +53,21 @@ FileStatus file_size(const char *,size_t &bytes) {bytes=0; return FileStatus::Mi
 bool write_state(const char *,const void *,size_t,Progress) {return save_ok;}
 bool save() {++saves; return save_ok;}
 bool reset_state() {++resets; return reset_ok;}
+bool visit_files(const char *directory,Visitor visitor,void *context) {
+    const auto prefix=std::string(directory)+"/";
+    for(const auto &file:backgrounds) if(file.path.rfind(prefix,0)==0)
+        visitor(file.path.c_str()+prefix.size(),file.bytes,context);
+    return background_scan_ok;
+}
 bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {
     ++reads; actual=0;
+    for(const auto &file:backgrounds) if(file.path==path) {
+        if(file.bytes>capacity) return false;
+        actual=file.bytes;
+        std::fill_n(static_cast<uint16_t *>(out),actual/2,file.color);
+        if(file.fail) {actual/=2; return false;}
+        return true;
+    }
     if(std::strncmp(path,"/rom/settings/",14)) return false;
     if(icon_fixture==5) {
         const char *root=std::getenv("TUFTY_SETTINGS_ASSETS");
@@ -200,7 +217,7 @@ int main() {
     assert(bright==80);
     input::hub.local(0); dispatch_input(++now);
     snapshot("display");
-    settings::draw(frame.data()); assert(frame[134*320+285]==ui::rgb(70,220,100));
+    settings::draw(frame.data()); assert(frame[158*320+285]==ui::rgb(70,220,100));
     focus(0); press(input::Previous); // Left changes panes, never brightness.
     assert(bright==80 && settings::page()==settings::Page::Root);
     press(input::Next); assert(settings::page()==settings::Page::Display);
@@ -213,14 +230,14 @@ int main() {
     back(); assert(settings::page()==settings::Page::Display);
     back(); assert(saves==0); back(); assert(saves==0 && settings::transitioning());
     present(); assert(saves==1 && settings::take_exit()==settings::Exit::Library && !usb::dirty);
-    root(); enter(0,settings::Page::Display); focus(2);
+    root(); enter(0,settings::Page::Display); focus(3);
     press(input::Next); assert(requested_te); // Right does not toggle TE.
     press(input::Previous); assert(requested_te && settings::page()==settings::Page::Root);
-    press(input::Next); assert(settings::focus()==2);
+    press(input::Next); assert(settings::focus()==3);
     press(input::Confirm);
     assert(!requested_te && !configuration::changed());
     press(input::Next); assert(!requested_te);
-    settings::draw(frame.data()); assert(frame[134*320+285]==ui::rgb(100,100,100));
+    settings::draw(frame.data()); assert(frame[158*320+285]==ui::rgb(100,100,100));
     back(); back(); present();
     assert(saves==1 && settings::take_exit()==settings::Exit::Library);
     // Failed writes preserve runtime values and baseline; cancellation never silently saves.
@@ -617,7 +634,7 @@ int main() {
     // Palette browsing is a draft: draw performs no I/O, Back/Home discard it,
     // Confirm joins the existing save-on-exit transaction.
     storage::config.palette=presentation::Palette::Current; configuration::init();
-    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Palette);
+    root(); enter(0,settings::Page::Display); enter(2,settings::Page::Palette);
     snapshot("palette-current"); present(); const auto current_sample=frame;
     assert(frame[64*320+128]==ui::cyan);
     press(input::Next); snapshot("palette-unsaturated"); present();
@@ -625,14 +642,14 @@ int main() {
     assert(storage::config.palette==presentation::Palette::Current);
     press(input::Next); snapshot("palette-smooth-v2"); back();
     assert(settings::page()==settings::Page::Display && !configuration::changed());
-    enter(1,settings::Page::Palette); press(input::Next); press(input::PagePrevious);
+    enter(2,settings::Page::Palette); press(input::Next); press(input::PagePrevious);
     assert(settings::title_selected()); snapshot("palette-title"); present();
     assert(frame[64*320+128]==ui::dim);
     const auto title_sample=frame;
     press(input::Next); present(); assert(frame==title_sample); // Title focus cannot change colors.
     press(input::Confirm);
     assert(settings::page()==settings::Page::Display && !configuration::changed());
-    enter(1,settings::Page::Palette); press(input::Next); press(input::Confirm);
+    enter(2,settings::Page::Palette); press(input::Next); press(input::Confirm);
     assert(settings::page()==settings::Page::Palette && configuration::changed());
     assert(storage::config.palette==presentation::Palette::Unsaturated);
     snapshot("palette-applied"); present(); assert(frame[64*320+128]==ui::rgb(70,220,100));
@@ -642,25 +659,25 @@ int main() {
     assert(frame[64*320+128]==ui::cyan); // Returning to the applied value isn't another confirmation.
     const auto palette_saves=saves; home(); present();
     assert(settings::take_exit()==settings::Exit::Library && saves==palette_saves+1);
-    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Palette); present();
+    root(); enter(0,settings::Page::Display); enter(2,settings::Page::Palette); present();
     const auto selected_sample=frame;
     assert(frame[64*320+128]==ui::cyan);
     press(input::Next); home(); present();
     assert(settings::take_exit()==settings::Exit::Library && saves==palette_saves+1);
-    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Palette); present();
+    root(); enter(0,settings::Page::Display); enter(2,settings::Page::Palette); present();
     assert(frame==selected_sample);
     press(input::Next); press(input::Confirm); save_ok=false; home(); present();
     assert(settings::active() && configuration::changed() && storage::config.palette==presentation::Palette::SmoothV2);
     save_ok=true; press(input::Confirm); present();
     assert(settings::take_exit()==settings::Exit::Library && !configuration::changed());
     for(auto preset:{presentation::Palette::Sony,presentation::Palette::Nintendo,presentation::Palette::BmfFinal3}) {
-        root(); enter(0,settings::Page::Display); enter(1,settings::Page::Palette);
+        root(); enter(0,settings::Page::Display); enter(2,settings::Page::Palette);
         press(input::Next); snapshot(presentation::palette_id(preset)); present();
         assert(frame[64*320+128]==ui::cyan && !configuration::changed());
         press(input::Confirm); assert(storage::config.palette==preset);
         home(); present(); assert(settings::take_exit()==settings::Exit::Library && !configuration::changed());
     }
-    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Palette);
+    root(); enter(0,settings::Page::Display); enter(2,settings::Page::Palette);
     press(input::Next); present(); assert(frame==current_sample); // Wrap to Original without applying.
     press(input::Previous); press(input::Confirm);
     assert(storage::config.palette==presentation::Palette::BmfFinal3 && !configuration::changed());
@@ -712,4 +729,66 @@ int main() {
     input::hub.local(0); tick(); enter(1,settings::Page::ControllerTest);
     home(); present(); assert(settings::take_exit()==settings::Exit::Library); // Global Home remains available.
     assert(!configuration::changed());
+    // Background browsing is non-destructive until a separate confirmation.
+    backgrounds={{"/rom/background/background.565",153600,0x1234},
+        {"/rom/background/Sky.565",153600,0x2345},
+        {"/system/assets/background/Sky.565",153600,0x3456},
+        {"/system/assets/background/tiny.565",9280,0xffff},
+        {"/system/assets/background/not-an-image.txt",153600,0xffff}};
+    storage::config.menu_background[0]=0; configuration::init(); ui::load_background();
+    root(); enter(0,settings::Page::Display);
+    const auto before_scan=reads;
+    enter(1,settings::Page::Backgrounds); assert(background::count()==3 && reads==before_scan);
+    snapshot("background-list"); present(); assert(reads==before_scan);
+    assert(!std::strcmp(background::name(1),"Sky.565") && !std::strcmp(background::source(2),"USB"));
+    enter(0,settings::Page::BackgroundPreview); present(); assert(frame[100*320+160]==0x1234);
+    press(input::Next); present(); snapshot("background-preview");
+    assert(frame[100*320+160]==0x2345 && !configuration::changed());
+    press(input::PagePrevious); assert(settings::title_selected());
+    press(input::Confirm); assert(settings::page()==settings::Page::Backgrounds && settings::focus()==1);
+    ui::background_image(frame.data()); assert(frame[0]==0x1234);
+    enter(1,settings::Page::BackgroundPreview); press(input::Next); press(input::Confirm);
+    assert(configuration::changed() && !std::strcmp(storage::config.menu_background,backgrounds[2].path.c_str()));
+    const auto before_background_save=saves;
+    assert(background::current()==2); present(); snapshot("background-applied");
+    assert(frame[0]==ui::rgb(70,220,100));
+    home(); present(); assert(settings::take_exit()==settings::Exit::Library);
+    assert(saves==before_background_save+1 && !background::count() && !configuration::changed());
+    ui::background_image(frame.data()); assert(frame[0]==0x3456);
+    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Backgrounds);
+    assert(settings::focus()==2); enter(2,settings::Page::BackgroundPreview);
+    press(input::Next); present(); assert(frame[100*320+160]==0x1234);
+    home(); present(); settings::take_exit(); assert(saves==before_background_save+1);
+    ui::background_image(frame.data()); assert(frame[0]==0x3456);
+    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Backgrounds);
+    backgrounds[1].fail=true; enter(0,settings::Page::BackgroundPreview); press(input::Next);
+    assert(settings::page()==settings::Page::Backgrounds && std::strstr(settings::notice(),"Cannot read"));
+    ui::background_image(frame.data()); assert(frame[0]==0x3456 && !configuration::changed());
+    backgrounds[1].fail=false;
+    enter(0,settings::Page::BackgroundPreview); press(input::Confirm);
+    assert(!storage::config.menu_background[0]); save_ok=false;
+    home(); present(); assert(settings::active() && configuration::changed());
+    save_ok=true; press(input::Confirm); present(); assert(settings::take_exit()==settings::Exit::Library);
+    ui::background_image(frame.data()); assert(frame[0]==0x1234);
+    std::strcpy(storage::config.menu_background,"/system/assets/background/missing.565");
+    ui::load_background(); ui::background_image(frame.data());
+    assert(frame[0]==0x1234 && ui::background_fallback());
+    assert(std::strstr(storage::config.menu_background,"missing"));
+    backgrounds.clear(); ui::load_background(); ui::background_image(frame.data()); assert(frame[0]==0);
+    root(); enter(0,settings::Page::Display); enter(1,settings::Page::Backgrounds);
+    press(input::Confirm); assert(settings::page()==settings::Page::Backgrounds);
+    back(); assert(!background::count());
+    for(unsigned i=70;i>0;--i) {
+        char path[80]; std::snprintf(path,sizeof path,"/system/assets/background/%02u.565",i);
+        backgrounds.push_back({path,153600,0});
+    }
+    assert(background::open() && background::limited() && background::count()==64);
+    assert(!std::strcmp(background::name(0),"01.565") && !std::strcmp(background::name(63),"64.565"));
+    background::close(); background_scan_ok=false;
+    assert(!background::open() && !background::count()); background_scan_ok=true;
+    for(const char *path:{"/rom/nes-background.565","/system/background/a.565","/rom/background/../a.565",
+        "/rom/background/sub/a.565","/rom/background/a.png","/rom/background/.565"}) assert(!background::valid_path(path));
+    assert(background::valid_path("/system/assets/background/Space name.565"));
+    assert(background::valid_path("/rom/background/a.565"));
+    backgrounds.clear(); storage::config.menu_background[0]=0; configuration::init();
 }

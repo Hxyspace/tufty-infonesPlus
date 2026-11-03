@@ -28,7 +28,7 @@ static_assert(sizeof(icons)/sizeof(*icons)==unsigned(Icon::Count));
 uint8_t __uninitialized_psram("icons") icon_pixels[11928];
 bool icon_valid[unsigned(Icon::Count)]{};
 }
-static bool have_bg=false,battery_sampled=false;
+static bool have_bg=false,battery_sampled=false,fallback_bg=false;
 static uint32_t last_battery_sample=0;
 void load_icons() {
     for(unsigned i=0;i<unsigned(Icon::Count);++i) {
@@ -50,9 +50,22 @@ bool icon(uint16_t *out,Icon which,int x,int y) {
     return true;
 }
 void load_background() {
+    const char *path=storage::config.menu_background;
+    fallback_bg=false;
+    if(*path && preview_background(path)) return;
+    preview_background(background::default_path);
+    fallback_bg=*path!=0;
+}
+bool preview_background(const char *path) {
+    fallback_bg=false;
     size_t n=0;
-    have_bg=storage::read_file("/system/assets/nes-background.565",custom_bg,sizeof(custom_bg),n) && n==sizeof(custom_bg);
-    if(!have_bg) have_bg=storage::read_file("/rom/nes-background.565",custom_bg,sizeof(custom_bg),n) && n==sizeof(custom_bg);
+    have_bg=background::valid_path(path) && storage::read_file(path,custom_bg,sizeof custom_bg,n) && n==sizeof custom_bg;
+    return have_bg;
+}
+bool background_fallback() {return fallback_bg;}
+void background_image(uint16_t *out) {
+    if(have_bg) std::memcpy(out,custom_bg,sizeof custom_bg);
+    else std::fill(out,out+320*240,0);
 }
 void service(uint32_t now_ms) {
     if(!battery_sampled || now_ms-last_battery_sample>=30000) {
@@ -122,8 +135,7 @@ void status_icons(uint16_t *out,BatteryStyle style) {
     circle(out,305,status_center_y,4,connection);
 }
 void canvas(uint16_t *out) {
-    if(have_bg) std::memcpy(out,custom_bg,sizeof(custom_bg));
-    else std::fill(out,out+320*240,0);
+    background_image(out);
     glyph_text(out,"TUFTY",14,8,white,art::header_glyphs,art::header_pixels);
     box(out,80,9,1,23,rgb(78,78,78));
     glyph_text(out,"NES",92,8,cyan,art::header_glyphs,art::header_pixels);

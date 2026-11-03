@@ -3,6 +3,7 @@
 #include <cstdint>
 #include "bluetooth_config.hpp"
 #include "presentation/nes_palette.hpp"
+#include "background_path.hpp"
 namespace storage {
 constexpr size_t kMaxRoms=128, kMaxRomBytes=4*1024*1024;
 struct Entry {
@@ -15,6 +16,7 @@ struct Config {
     uint16_t controller=1;
     uint8_t brightness=80;
     presentation::Palette palette=presentation::Palette::Current;
+    char menu_background[background::path_bytes]{}; // Empty selects the built-in default.
     bool swap_ab=false;
     bool serial_enabled=true;
     bool ble_enabled=true;
@@ -45,6 +47,7 @@ enum class FileStatus {Missing,File,Error};
 FileStatus file_size(const char *path,size_t &bytes);
 using Visitor=void (*)(const char *name,uint32_t bytes,void *context);
 bool visit_roms(Visitor visitor,void *context);
+bool visit_files(const char *directory,Visitor visitor,void *context);
 using Progress=void (*)();
 bool scan(bool force=false,Progress progress=nullptr);
 bool write_state(const char *path,const void *data,size_t bytes,Progress progress=nullptr);

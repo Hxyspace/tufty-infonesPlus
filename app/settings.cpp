@@ -2,6 +2,7 @@
 #include "library.hpp"
 #include "game_lists.hpp"
 #include "gamepad_test.hpp"
+#include "background.hpp"
 #include "configuration.hpp"
 #include "controllers.hpp"
 #include "ble.hpp"
@@ -27,6 +28,7 @@ enum class Dialog {None,Confirm,SaveError,Brightness,SleepTime,ControllerId};
 Page current=Page::Root;
 presentation::Palette palette_draft=presentation::Palette::Current;
 bool palette_confirmed=false;
+bool background_confirmed=false;
 gamepad_test::View controller_test;
 unsigned focuses[unsigned(Page::Count)]{};
 unsigned first_rows[unsigned(Page::Count)]{};
@@ -60,7 +62,7 @@ Row rows[17];
 unsigned row_count=0;
 char footer[96]{};
 const char *titles[]={"Settings","Display","Control","Bluetooth","Search gamepads","Gamepad",
-    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front","View list","Favorites","NES palette","Gamepad test"};
+    "Allowed devices","Allowed gamepad","Connection mode","Power","System","About","Game library","Move to front","View list","Favorites","NES palette","Gamepad test","Background","Background"};
 static_assert(sizeof titles/sizeof *titles==unsigned(Page::Count));
 constexpr Page categories[]={Page::Display,Page::Control,Page::Power,Page::System,Page::About};
 constexpr ui::Icon category_icons[]={ui::Icon::Display,ui::Icon::Control,ui::Icon::Power,ui::Icon::System,ui::Icon::About};
@@ -77,6 +79,9 @@ void stop_search() {
     search_flow=false; searching=false;
 }
 void go(Page next) {
+    const auto background_page=[](Page page) {return page==Page::Backgrounds || page==Page::BackgroundPreview;};
+    if(current==Page::BackgroundPreview && next!=current) background::restore();
+    if(background_page(current) && !background_page(next)) background::close();
     for(unsigned i=0;i<5;++i) if(categories[i]==next) focuses[unsigned(Page::Root)]=i;
     current=next; title_focus=false; message[0]=0; barrier();
     if(next==Page::Allowed) previous_allowed=storage::config.ble;
@@ -113,6 +118,13 @@ void marked(const char *label,bool enabled) {
     add(label); rows[row_count-1].mark=enabled?Mark::On:Mark::Off;
 }
 Row row_at(Page view,unsigned i) {
+    if(view==Page::Backgrounds && i<background::count()) {
+        Row row; const auto *name=background::name(i);
+        std::snprintf(row.label,sizeof row.label,"%.*s",int(std::strlen(name)-4),name);
+        std::snprintf(row.value,sizeof row.value,"%s",background::source(i));
+        row.mark=background::selected(i)?Mark::On:Mark::None;
+        row.arrow=true; return row;
+    }
     if(view!=Page::GameOrder && view!=Page::Favorites) return rows[i];
     Row row;
     if(i<storage::count) {
@@ -132,6 +144,8 @@ const char *parent_title() {
     case Page::AllowedDevice: return "Allowed devices";
     case Page::GameLibrary: return "System";
     case Page::Palette: return "Display";
+    case Page::Backgrounds: return "Display";
+    case Page::BackgroundPreview: return "Background";
     case Page::GameOrder: return "Game library";
     case Page::LibraryView: case Page::Favorites: return "Game library";
     default: return "Settings";
@@ -162,6 +176,7 @@ void model(uint32_t now=0,Page view=Page::Count) {
             unsaved()?"Changes save on exit":"Saved settings"); break;
     case Page::Display: {
         std::snprintf(value,sizeof(value),"%u%%",cfg.brightness); add("Brightness",value,true);
+        add("Background","",true);
         add("NES palette","",true);
         marked("TE sync",display::te_requested());
         const auto stats=display::stats();
@@ -242,7 +257,13 @@ void model(uint32_t now=0,Page view=Page::Count) {
         if(battery::reading().valid) std::snprintf(value,sizeof(value),"~%u%%",battery::reading().percent);
         else std::strcpy(value,"--");
         add("Battery estimate",value); break;
-    case Page::ControllerTest: case Page::Palette: case Page::Count: break;
+    case Page::Backgrounds:
+        row_count=background::count();
+        if(!row_count) {add("No backgrounds"); rows[0].enabled=false;}
+        std::snprintf(footer,sizeof footer,"%s",background::incomplete()?"Some folders unreadable":background::limited()?"First 64 backgrounds shown":
+            ui::background_fallback()?"Selected image missing; using default":"A: preview");
+        break;
+    case Page::BackgroundPreview: case Page::ControllerTest: case Page::Palette: case Page::Count: break;
     }
     auto &focus=focuses[unsigned(view)];
     focus=std::min(focus,row_count?row_count-1:0);
@@ -260,6 +281,8 @@ void back() {
     case Page::Bluetooth: go(Page::Control); break;
     case Page::ControllerTest: go(Page::Control); break;
     case Page::Palette: go(Page::Display); break;
+    case Page::Backgrounds: go(Page::Display); break;
+    case Page::BackgroundPreview: go(Page::Backgrounds); break;
     case Page::Search: stop_search(); go(Page::Bluetooth); break;
     case Page::Device: go(Page::Search); break;
     case Page::AllowedDevice: go(Page::Allowed); break;
@@ -312,11 +335,23 @@ void activate(uint32_t now) {
     }
     case Page::Display:
         if(row==0) {dialog=Dialog::Brightness; barrier();}
-        else if(row==1) {palette_draft=cfg.palette; palette_confirmed=false; go(Page::Palette);}
-        else if(row==2) {
+        else if(row==1) {
+            if(background::open()) {
+                focuses[unsigned(Page::Backgrounds)]=background::current();
+                first_rows[unsigned(Page::Backgrounds)]=0; go(Page::Backgrounds);
+            } else {say("Cannot load background list"); barrier();}
+        }
+        else if(row==2) {palette_draft=cfg.palette; palette_confirmed=false; go(Page::Palette);}
+        else if(row==3) {
             const auto stats=display::stats();
             display::te_sync(display::te_requested() && !stats.te_enabled && stats.te_timeouts?true:!display::te_requested());
         } break;
+    case Page::Backgrounds:
+        if(row<background::count()) {
+            if(background::preview(row)) {background_confirmed=false; go(Page::BackgroundPreview);}
+            else {say("Cannot read background"); barrier();}
+        }
+        break;
     case Page::Control: {
         if(row==0) go(Page::Bluetooth);
         else if(row==1) {go(Page::ControllerTest); controller_test.open(now);}
@@ -408,6 +443,7 @@ void activate(uint32_t now) {
 }
 }
 void open() {
+    background::close();
     game_lists::open(); game_lists::refresh();
     library_action=LibraryAction::None; library_generation=storage::generation();
     opened=true; current=Page::Root; completed=target=Exit::None;
@@ -558,6 +594,22 @@ void update(input::Snapshot keys,bool home,uint32_t now) {
         }
         return;
     }
+    if(current==Page::BackgroundPreview) {
+        if(pressed&input::PagePrevious) {title_focus=true; background_confirmed=false;}
+        else if(pressed&input::PageNext) {title_focus=false; background_confirmed=false;}
+        else if(title_focus) {
+            if(!(pressed&(input::Previous|input::Next)) && (pressed&input::Confirm)) back();
+        } else if(pressed&(input::Previous|input::Next)) {
+            const unsigned count=background::count(),index=background::current();
+            const unsigned next=(index+(pressed&input::Previous?count-1:1))%count;
+            if(background::preview(next)) {
+                focuses[unsigned(Page::Backgrounds)]=next; background_confirmed=false;
+                // File reads service input; do not replay edges collected while loading.
+                barrier();
+            } else {go(Page::Backgrounds); say("Cannot read background");}
+        } else if(pressed&input::Confirm) background_confirmed=background::apply();
+        return;
+    }
     if(current==Page::Palette) {
         const auto index=unsigned(palette_draft);
         if(pressed&input::PagePrevious) {title_focus=true; palette_confirmed=false;}
@@ -636,10 +688,22 @@ void after_present() {
             target=Exit::None; waiting_release=false; barrier();
             say(!configuration::available() || unsaved()?"Session only; changes retained":"Saved settings"); return;
         }
+        background::close();
         completed=target; target=Exit::None; waiting_release=false; opened=false; barrier();
     }
 }
 void draw(uint16_t *out) {
+    if(current==Page::BackgroundPreview && dialog==Dialog::None && !transitioning()) {
+        ui::background_image(out);
+        const auto back_color=title_focus?ui::cyan:ui::dim;
+        ui::box(out,6,6,26,1,back_color); ui::box(out,6,31,26,1,back_color);
+        ui::box(out,6,7,1,24,back_color); ui::box(out,31,7,1,24,back_color);
+        ui::text_centered(out,"<",14,6,26,title_focus?ui::cyan:ui::grey,12);
+        const auto color=title_focus?ui::dim:background_confirmed?ui::rgb(70,220,100):ui::cyan;
+        ui::box(out,0,0,320,1,color); ui::box(out,0,239,320,1,color);
+        ui::box(out,0,0,1,240,color); ui::box(out,319,0,1,240,color);
+        return;
+    }
     if(current==Page::ControllerTest && dialog==Dialog::None && !transitioning()) {
         controller_test.draw(out); return;
     }
@@ -731,10 +795,11 @@ void draw(uint16_t *out) {
         const bool focus=!sidebar_focus && !title_focus && i==row_focus && view!=Page::About && !searching;
         if(focus) {ui::rounded_box(out,left,y+1,306-left,22,5,highlight); ui::box(out,left+2,y+6,2,12,ui::cyan);}
         if(i+1<last) ui::box(out,label_x,y+23,298-label_x,1,separator);
-        const int value_width=std::min(ui::width(row.value),std::max(0,285-label_x-12));
-        const int label_right=row.value[0]?285-value_width-8:row.mark!=Mark::None?275:row.arrow?287:299;
+        const int value_right=view==Page::Backgrounds?273:285;
+        const int value_width=std::min(ui::width(row.value),std::max(0,value_right-label_x-12));
+        const int label_right=row.value[0]?value_right-value_width-8:row.mark!=Mark::None?275:row.arrow?287:299;
         ui::text_centered(out,row.label,label_x,y,24,!row.enabled?ui::dim:focus?ui::white:ui::grey,label_right-label_x);
-        if(row.value[0]) ui::text_centered(out,row.value,285-value_width,y,24,ui::cyan,value_width);
+        if(row.value[0]) ui::text_centered(out,row.value,value_right-value_width,y,24,view==Page::Backgrounds?ui::rgb(76,84,92):ui::cyan,value_width);
         if(row.mark!=Mark::None) ui::circle(out,285,y+12,4,row.mark==Mark::On?green:ui::rgb(100,100,100));
         if(row.arrow) ui::text_centered(out,">",295,y,24,ui::orange,10);
     }

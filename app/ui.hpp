@@ -14,6 +14,9 @@ constexpr uint16_t white=0xffff,cyan=rgb(0,193,222),orange=rgb(255,174,45),
 void canvas(uint16_t *out);
 void status_icons(uint16_t *out,BatteryStyle style=BatteryStyle::Library);
 void load_background();
+bool preview_background(const char *path);
+void background_image(uint16_t *out);
+bool background_fallback();
 // Load once at resource preparation; drawing never reads files. Reload also
 // invalidates cached failures when resources are refreshed.
 void load_icons();

@@ -10,7 +10,7 @@ if(NOT result EQUAL 0)
 endif()
 set(root ${CMAKE_SOURCE_DIR})
 add_executable(tufty_preview main.cpp devices.cpp flash.cpp
-  ${root}/app/menu.cpp ${root}/app/ui.cpp ${root}/app/settings.cpp ${root}/app/gamepad_test.cpp ${root}/app/disk_ui.cpp
+  ${root}/app/menu.cpp ${root}/app/ui.cpp ${root}/app/settings.cpp ${root}/app/gamepad_test.cpp ${root}/app/background.cpp ${root}/app/disk_ui.cpp
   ${root}/app/storage.cpp ${root}/app/library.cpp ${root}/app/game_lists.cpp ${root}/app/fat_disk.cpp ${root}/app/rom_store.cpp
   ${root}/app/input.cpp ${root}/app/gamepad.cpp ${root}/app/controllers.cpp
   ${root}/app/protocol.cpp ${root}/app/bluetooth_manager.cpp

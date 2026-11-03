@@ -12,7 +12,7 @@
 
 例如 `resources/state/state/nes.json` 对应设备 `/state/nes.json`，不要省略第二层 `state`。默认保留空 `/state` 目录，配置使用程序默认值。
 
-默认 RM1 包含月夜背景 `nes-background.565`（320×240，RGB565 little-endian，无文件头）。替换此文件后重新构建带 ROM 的镜像即可更新。字体仍编入程序。FAT 的 `roms/` 目录包含 Chase、LAN Master、TobuNES、Cargo Shift 四款游戏、各自封面和 JSON 元数据；格式见[使用指南](../docs/usage.md#游戏索引封面和背景)。TobuNES 的 NES 2.0 多区域声明默认按 NTSC 运行，原始 ROM 不修改。
+默认 RM1 包含默认背景 `background/background.565`（320×240，RGB565 little-endian，无文件头）。替换此文件后重新构建带 ROM 的镜像即可更新。字体仍编入程序。FAT 的 `roms/` 目录包含 Chase、LAN Master、TobuNES、Cargo Shift 四款游戏、各自封面和 JSON 元数据；格式见[使用指南](../docs/usage.md#游戏索引封面和背景)。TobuNES 的 NES 2.0 多区域声明默认按 NTSC 运行，原始 ROM 不修改。
 
 `resources/system/roms/` 是随镜像发布的资源目录。整个 `resources/` 在 Git 中默认忽略，新增资源需使用 `git add -f <具体文件路径>` 明确加入；已有资源仍被跟踪，修改和删除会正常显示，忽略规则不会保护它们免于提交。不要强制添加整个目录，以免带入无关文件。根目录 `roms/` 用于本地素材整理，除说明文件外均被 Git 忽略。Git 不记录空目录，空的 `state/state/` 使用 `.gitkeep` 占位。忽略规则不影响本地构建；资源目录中的文件仍会进入完整镜像。
 

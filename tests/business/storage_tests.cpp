@@ -135,7 +135,7 @@ int main(int argc,char **argv) {
         const bool defaults=std::string(argv[2])=="defaults";
         assert(storage::config.brightness==(defaults?80:63));
         std::vector<uint8_t> background(320*240*2); size_t bytes=0;
-        assert(storage::read_file("/rom/nes-background.565",background.data(),background.size(),bytes));
+        assert(storage::read_file("/rom/background/background.565",background.data(),background.size(),bytes));
         assert(bytes==background.size());
         if(!defaults) {
             char text[32]{};
@@ -175,6 +175,7 @@ int main(int argc,char **argv) {
     bool idle_off=argc==4 && std::string(argv[3])=="idle_off";
     bool bad_idle=argc==4 && std::string(argv[3])=="bad_idle";
     const bool bad_palette=scenario=="bad_palette" || scenario=="bad_palette_type";
+    const bool bad_background=scenario=="bad_background" || scenario=="bad_background_type";
     bool custom_ble=argc==4 && (std::string(argv[3])=="ble" || scenario.rfind("gamepad_",0)==0);
     bool bad_peer=argc==4 && std::string(argv[3])=="bad_peer";
     bool bad_ble=argc==4 && std::string(argv[3])=="bad_ble";
@@ -186,6 +187,7 @@ int main(int argc,char **argv) {
     if(bad_policy) ble="\"serial_enabled\":false,\"ble_mode\":\"whitelist\",\"ble_preferred\":0,\"ble_whitelist\":[]";
     if(scenario=="duplicate_peer") ble="\"ble_whitelist\":[{\"mac\":\"AA:BB:CC:DD:EE:FF\",\"random\":false},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"random\":false}]";
     if(bad_palette) ble=scenario=="bad_palette"?"\"nes_palette\":\"unknown\"":"\"nes_palette\":2";
+    if(bad_background) ble=scenario=="bad_background"?"\"menu_background\":\"/system/roms/game.565\"":"\"menu_background\":2";
     if(!blank) fixture_state(corrupt,idle_off?"0":bad_idle?"86401":nullptr,ble);
     if(scenario.rfind("reset",0)==0) {
         storage::init(); assert(storage::mounted());
@@ -216,7 +218,7 @@ int main(int argc,char **argv) {
         assert(storage::file_size("/state/games.idx",bytes)==storage::FileStatus::Missing);
         munmap(flash,16*1024*1024); return 0;
     }
-    if(blank || corrupt || bad_idle || bad_peer || bad_ble || bad_policy || bad_palette) {
+    if(blank || corrupt || bad_idle || bad_peer || bad_ble || bad_policy || bad_palette || bad_background) {
         std::vector<uint8_t> before(flash,flash+16*1024*1024);
         storage::init(); assert(storage::mounted() && !storage::state_ready());
         assert(!storage::config.ble.count && storage::config.serial_enabled);
@@ -368,6 +370,7 @@ int main(int argc,char **argv) {
         munmap(flash,16*1024*1024); return 0;
     }
     if(scenario=="catalog") {
+        std::strcpy(storage::config.menu_background,"/system/assets/background/background.565");
         assert(argc==5);
         std::ifstream expected_file(argv[4]);
         std::string expected_text((std::istreambuf_iterator<char>(expected_file)),{});
@@ -540,6 +543,7 @@ int main(int argc,char **argv) {
     storage::config.controller=65535; storage::config.brightness=35; storage::config.swap_ab=true;
     storage::config.menu_sleep_seconds=0;
     storage::config.palette=presentation::Palette::Unsaturated;
+    std::strcpy(storage::config.menu_background,"/system/assets/background/Missing image.565");
     storage::config.ble_enabled=false; storage::config.serial_enabled=false;
     storage::config.ble_scan_uuid=0x1812;
     storage::config.ble={}; bluetooth::Peer key;
@@ -554,6 +558,8 @@ int main(int argc,char **argv) {
     assert(std::strstr(text,"\"nes_palette\":\"unsaturated-final\""));
     storage::config.palette=presentation::Palette::Current;
     storage::init(); assert(storage::config.palette==presentation::Palette::Unsaturated);
+    assert(!std::strcmp(storage::config.menu_background,"/system/assets/background/Missing image.565"));
+    assert(storage::state_ready()); // A missing image is not a corrupt configuration.
     for(unsigned i=0;i<presentation::palette_count;++i) {
         const auto selected=presentation::Palette(i);
         storage::config.palette=selected;

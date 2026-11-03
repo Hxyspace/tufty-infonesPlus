@@ -19,7 +19,7 @@ add_test(NAME input COMMAND input_tests)
 add_executable(game_lists_tests game_lists_tests.cpp ${runtime}/game_lists.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp
   ${runtime}/input.cpp ${runtime}/gamepad.cpp battery_stub.cpp ${root}/lib/cjson/cJSON.c)
 add_test(NAME game_lists COMMAND game_lists_tests)
-add_executable(settings_tests settings_tests.cpp ${runtime}/settings.cpp ${runtime}/gamepad_test.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp
+add_executable(settings_tests settings_tests.cpp ${runtime}/settings.cpp ${runtime}/gamepad_test.cpp ${runtime}/background.cpp ${runtime}/menu.cpp ${runtime}/ui.cpp
   ${runtime}/input.cpp ${runtime}/gamepad.cpp ${runtime}/controllers.cpp ${runtime}/protocol.cpp battery_stub.cpp
   ${runtime}/game_lists.cpp ${root}/lib/cjson/cJSON.c)
 target_link_libraries(settings_tests PRIVATE tufty_version)
@@ -80,7 +80,7 @@ add_test(NAME state_invalid_idle COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURREN
 add_test(NAME state_ble COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 ble)
 add_test(NAME state_invalid_ble_peer COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 bad_peer)
 add_test(NAME state_invalid_ble_type COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 bad_ble)
-foreach(scenario policy bad_policy duplicate_peer gamepad_override gamepad_no_state bad_palette bad_palette_type)
+foreach(scenario policy bad_policy duplicate_peer gamepad_override gamepad_no_state bad_palette bad_palette_type bad_background bad_background_type)
   add_test(NAME state_${scenario} COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/storage_fixture.py $<TARGET_FILE:storage_tests> 4096 ${scenario})
 endforeach()
 add_test(NAME host_sender COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_LIST_DIR}/test_sender.py)

@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix="tufty-resource-test-") as directory:
     root=Path(directory)
     resources=root/"resources"
     shutil.copytree(PROJECT/"resources",resources)
-    (resources/"system/assets").mkdir()
+    (resources/"system/assets").mkdir(exist_ok=True)
     (resources/"system/assets/test.txt").write_text("system image test")
     (resources/"system/assets/zeros.bin").write_bytes(bytes(8192))
     (resources/"system/assets/erased.bin").write_bytes(b"\xff"*8192)

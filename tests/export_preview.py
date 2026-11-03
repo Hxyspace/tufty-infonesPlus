@@ -130,12 +130,14 @@ class Export:
         resource_images.fat(self.args.resources / "system", image)
         # The isolated catalog test mounts FAT only. Supply its built-in background fallback
         # in this disposable FAT image, preserving the selected resources on disk.
-        background = self.args.resources / "rom/nes-background.565"
+        background = self.args.resources / "rom/background/background.565"
         assets = self.args.resources / "system/assets"
-        if not (assets / "nes-background.565").exists() and background.is_file():
+        if not (assets / "background/background.565").exists() and background.is_file():
             if not assets.exists():
                 self.run("host-assets", ["mmd", "-i", image, "::/assets"])
-            self.run("host-background", ["mcopy", "-i", image, background, "::/assets/nes-background.565"])
+            if not (assets / "background").exists():
+                self.run("host-background-dir", ["mmd", "-i", image, "::/assets/background"])
+            self.run("host-background", ["mcopy", "-i", image, background, "::/assets/background/background.565"])
         manifest = self.work / "host/catalog.json"
         manifest.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
         self.run("host-catalog", [self.executable("storage_tests", True), image, "4096", "catalog", manifest],

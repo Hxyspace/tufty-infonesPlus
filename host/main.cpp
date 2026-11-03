@@ -4,6 +4,7 @@
 #include "menu.hpp"
 #include "menu_repeat.hpp"
 #include "settings.hpp"
+#include "background.hpp"
 #include "configuration.hpp"
 #include "controllers.hpp"
 #include "ble.hpp"
@@ -97,6 +98,8 @@ std::string value(const std::string &key) {
     if(key=="first_game") return storage::count?storage::entries[0].name:"none";
     if(key=="brightness") return std::to_string(storage::config.brightness);
     if(key=="palette") return presentation::palette_id(storage::config.palette);
+    if(key=="background") return storage::config.menu_background[0]?storage::config.menu_background:"default";
+    if(key=="background_count") return std::to_string(background::count());
     if(key=="swap") return std::to_string(storage::config.swap_ab);
     if(key=="te") return std::to_string(display::te_requested());
     if(key=="dirty") return std::to_string(configuration::changed());

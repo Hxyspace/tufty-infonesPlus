@@ -170,4 +170,4 @@ LCD 的 `frame_us` 包含 TE 等待与传输，`transfer_us` 排除 TE 等待，
 
 USB 磁盘接管请求出现后停止菜单预取；现有同步文件读取先关闭文件，再由主循环进入磁盘模式。FAT 文件和目录读取期间禁止卸载。当前磁盘模式的进入与退出通过重启切换，返回菜单会重读目录并重建封面、文字缓存，不沿用电脑更新前的资源。
 
-背景属于资源分区：优先读取 /system/assets/nes-background.565，再读取 /rom/nes-background.565，两者不可读时黑底。程序不内嵌背景数组；资源存在时启动读取到静态 PSRAM 背景缓冲，游戏期间不读取或绘制。tools/resource_images.py 构建三种存储组合，布局与 app/layout.hpp 一致，镜像集成测试通过实际存储实现挂载验证。
+背景从 /rom/background/ 与 /system/assets/background/ 选择，以完整路径记录身份；默认使用 /rom/background/background.565。所选文件不可读时回退默认，再失败则黑底，回退不改写配置。应用背景与候选预览复用同一块 PSRAM 缓存，离开预览恢复已应用背景；有界文件列表仅在选择流程中分配，退出释放。绘制不访问文件，游戏期间不读取或绘制背景。tools/resource_images.py 构建三种存储组合，布局与 app/layout.hpp 一致，镜像集成测试通过实际存储实现挂载验证。
