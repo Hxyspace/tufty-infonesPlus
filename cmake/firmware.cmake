@@ -11,16 +11,9 @@ if(NOT PICO_SDK_VERSION_STRING VERSION_EQUAL "2.3.0")
   message(FATAL_ERROR "Restore the locked Pico SDK 2.3.0 checkout")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/sources.cmake")
 set(fatfs "${CMAKE_CURRENT_SOURCE_DIR}/lib/fatfs/source")
-add_executable(nes
-  app/main.cpp presentation/display.cpp presentation/game_view.cpp presentation/disk_display.cpp presentation/disk_renderer.cpp
-  platform/tufty2350/panel.cpp platform/tufty2350/core_memory.cpp app/menu.cpp app/storage.cpp app/fat_disk.cpp
-  app/rom_store.cpp app/library.cpp app/game_lists.cpp app/usb.cpp app/shell.cpp app/descriptors.cpp app/protocol.cpp app/settings.cpp app/gamepad_test.cpp app/background.cpp app/side_background.cpp app/ui.cpp
-  app/power.cpp platform/tufty2350/power_board.cpp platform/tufty2350/power_reset.cpp platform/tufty2350/battery.cpp
-  app/disk_ui.cpp app/ble.cpp app/ble_gamepad.cpp app/ble_tgp.cpp app/bluetooth_manager.cpp
-  app/gamepad.cpp app/input.cpp app/controllers.cpp platform/tufty2350/ble_stack.c platform/tufty2350/radio_wait.c
-  "${fatfs}/ff.c" "${fatfs}/ffunicode.c"
-  lib/littlefs/lfs.c lib/littlefs/lfs_util.c lib/cjson/cJSON.c)
+add_executable(nes ${TUFTY_FIRMWARE_SOURCES})
 target_include_directories(nes PRIVATE app presentation platform/tufty2350 config "${fatfs}"
   lib/littlefs lib/cjson)
 target_compile_definitions(nes PRIVATE TUFTY2350

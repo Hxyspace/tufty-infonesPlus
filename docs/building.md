@@ -14,6 +14,8 @@
 
 源码使用 C11 / C++17。主机测试默认开启 AddressSanitizer 和 UndefinedBehaviorSanitizer。设备固件使用 Release 配置，主机与设备使用不同构建目录。
 
+固件和 SDL 预览的源码清单集中在 `cmake/sources.cmake`，分别维护两个列表；新增源码时加入适用的列表。编译设置和链接依赖保留在各目标中，核心库和测试继续在各自的 CMakeLists 中直接列出源码。
+
 ## 依赖管理
 
 外部依赖的来源、完整 commit 和补丁由 `deps.lock.json` 固定，下载到本地 `lib/`，不作为顶层 Git submodule 提交。InfoNES 核心直接在本仓库维护。
@@ -59,6 +61,12 @@ bash tools/build.sh
 普通固件内容限制在 Flash 前 2 MiB，UF2 另保留 SDK 的 RP2350 E10 兼容块。刷写行为与文件系统要求见[存储与升级](storage.md)。构建脚本不自动刷机。
 
 进入设备 BOOTSEL 模式后，将 UF2 复制到设备的启动磁盘；已经运行本固件时，也可通过 Console 输入 `bootsel`。完整文件系统镜像包含 Chase、LAN Master、TobuNES、Cargo Shift 及其菜单资源，文件系统可直接挂载；另外两种镜像保留设备已有的游戏目录。
+
+## GitHub Actions
+
+仓库的 **Build firmware** 工作流支持手动运行，以及推送 tag 时自动运行；普通分支推送不触发。工作流先运行主机业务测试和 SDL 预览回归，再构建、校验并上传完整固件包，使用仓库内的默认资源。
+
+在运行页面的 **Artifacts** 中下载 `tufty-nes-版本号-构建时间`，内容与本地 `dist/` 一致。工作流不创建或更新 GitHub Release。版本号由根目录 `CMakeLists.txt` 的 `project(... VERSION ...)` 定义；发布 tag 时应与该版本一致，例如 `v0.1.1`。
 
 ## 主机测试
 

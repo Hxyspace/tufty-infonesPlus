@@ -1,0 +1,58 @@
+name: Build firmware
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - '**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+      PYTHON: /usr/bin/python3
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build git python3 python3-pil \
+            gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib \
+            dosfstools mtools libsdl2-dev
+
+      - name: Prepare locked dependencies
+        run: '"$PYTHON" -B tools/deps.py --radio'
+
+      - name: Build and test host targets
+        run: |
+          cmake -S . -B build/host -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug -DNES_SANITIZERS=ON \
+            -DTUFTY_BUSINESS_TESTS=ON -DTUFTY_HOST_PREVIEW=ON \
+            -DPython3_EXECUTABLE="$PYTHON"
+          cmake --build build/host
+          ctest --test-dir build/host --output-on-failure
+
+      - name: Build and package firmware
+        id: firmware
+        run: |
+          bash tools/build.sh
+          awk -F '"' '/^#define TUFTY_VERSION_TIMESTAMP / { print "version=" $2 }' \
+            build/firmware/generated/tufty_version.hpp >> "$GITHUB_OUTPUT"
+
+      - name: Upload firmware package
+        uses: actions/upload-artifact@v7
+        with:
+          name: tufty-nes-${{ steps.firmware.outputs.version }}
+          path: dist/
+          if-no-files-found: error
