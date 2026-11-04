@@ -323,21 +323,98 @@ const char *description(size_t index) {
 bool has_cover(size_t index) {
     return index<count && (index_mode ? (table[index].flags&1u)!=0 : true);
 }
-bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {
+static bool canonical_path(const char *path) {
+    if(!path || *path!='/') return false;
+    for(const char *p=path+1;*p;) {
+        const char *start=p;
+        while(*p && *p!='/') {
+            if(static_cast<unsigned char>(*p)<32 || *p==':' || *p=='\\') return false;
+            ++p;
+        }
+        const size_t n=p-start;
+        if(!n || (n==1 && start[0]=='.') || (n==2 && start[0]=='.' && start[1]=='.')) return false;
+        if(*p) ++p;
+    }
+    return true;
+}
+static bool under(const char *path,const char *root) {
+    const size_t n=std::strlen(root);return !std::strncmp(path,root,n) && (!path[n] || path[n]=='/');
+}
+bool inspect_path(const char *path,PathInfo &info) {
+    info={};if(!canonical_path(path)) return false;
+    if(!std::strcmp(path,"/")) {info.directory=true;return true;}
+    if(under(path,"/rom")) {
+        tufty::storage::RomView view;
+        if(rom.find(path,view)!=tufty::storage::RomResult::Ok) return false;
+        info={view.directory,view.bytes};return true;
+    }
+    if(under(path,"/system") && fat_mounted) {
+        if(!path[7]) {info.directory=true;return true;}
+        FILINFO stat{};if(f_stat(path+7,&stat)!=FR_OK) return false;
+        info={bool(stat.fattrib&AM_DIR),size_t(stat.fsize)};return true;
+    }
+    if(under(path,"/state") && state_mounted) {
+        lfs_info stat{};if(lfs_stat(&lfs,path,&stat)) return false;
+        info={stat.type==LFS_TYPE_DIR,stat.size};return true;
+    }
+    return false;
+}
+bool list_directory(const char *path,DirectoryVisitor visitor,void *context) {
+    if(!canonical_path(path) || !visitor) return false;
+    if(!std::strcmp(path,"/")) return visitor("rom",true,0,context) && visitor("system",true,0,context) && visitor("state",true,0,context);
+    if(under(path,"/rom")) {
+        using tufty::storage::RomResult;
+        tufty::storage::RomView view;
+        if(rom.find(path,view)!=RomResult::Ok || !view.directory) return false;
+        uint32_t cursor=0;tufty::storage::RomEntry entry;
+        for(;;) {
+            const auto rc=rom.next(view,cursor,entry);
+            if(rc==RomResult::End) return true;
+            if(rc!=RomResult::Ok || entry.name_bytes>=256) return false;
+            char name[256];std::memcpy(name,entry.name,entry.name_bytes);name[entry.name_bytes]=0;
+            if(!visitor(name,entry.view.directory,entry.view.bytes,context)) return false;
+            tufty_service();
+        }
+    }
+    if(under(path,"/system") && fat_mounted) {
+        SystemReader reader;DIR dir{};
+        if(f_opendir(&dir,path[7]?path+7:"/")!=FR_OK) return false;
+        FILINFO info{};FRESULT rc;bool ok=true;
+        while((rc=f_readdir(&dir,&info))==FR_OK && info.fname[0]) {
+            if(std::strcmp(info.fname,".") && std::strcmp(info.fname,"..") &&
+               !visitor(info.fname,bool(info.fattrib&AM_DIR),info.fsize,context)) {ok=false;break;}
+            tufty_service();
+        }
+        return f_closedir(&dir)==FR_OK && rc==FR_OK && ok;
+    }
+    if(under(path,"/state") && state_mounted) {
+        lfs_dir_t dir{};if(lfs_dir_open(&lfs,&dir,path)) return false;
+        lfs_info info{};int rc;bool ok=true;
+        while((rc=lfs_dir_read(&lfs,&dir,&info))>0) {
+            if(std::strcmp(info.name,".") && std::strcmp(info.name,"..") &&
+               !visitor(info.name,info.type==LFS_TYPE_DIR,info.size,context)) {ok=false;break;}
+            tufty_service();
+        }
+        return lfs_dir_close(&lfs,&dir)==0 && rc>=0 && ok;
+    }
+    return false;
+}
+static bool read_file_impl(const char *path,void *out,size_t capacity,size_t &actual,bool prefix) {
     actual=0;
-    if(!path || !out || std::strstr(path,"..") || std::strchr(path,':') || std::strchr(path,'\\')) return false;
+    if(!canonical_path(path) || !out) return false;
     if(!std::strncmp(path,"/rom/",5)) {
         tufty::storage::RomView view;
-        if(rom.find(path,view)!=tufty::storage::RomResult::Ok || view.directory || view.bytes>capacity) return false;
-        std::memcpy(out,view.data,view.bytes); actual=view.bytes; return true;
+        if(rom.find(path,view)!=tufty::storage::RomResult::Ok || view.directory || (!prefix && view.bytes>capacity)) return false;
+        actual=std::min<size_t>(view.bytes,capacity);std::memcpy(out,view.data,actual);return true;
     }
     if(!std::strncmp(path,"/system/",8)) {
         if(!fat_mounted) return false;
         SystemReader reader;
         FIL f{}; if(f_open(&f,path+7,FA_READ)!=FR_OK) return false;
-        bool ok=f_size(&f)<=capacity;
-        while(ok && actual<f_size(&f)) {
-            UINT got=0; UINT chunk=std::min<size_t>(4096,f_size(&f)-actual);
+        bool ok=prefix || f_size(&f)<=capacity;
+        const size_t bytes=std::min<size_t>(f_size(&f),capacity);
+        while(ok && actual<bytes) {
+            UINT got=0; UINT chunk=std::min<size_t>(4096,bytes-actual);
             ok=f_read(&f,static_cast<uint8_t *>(out)+actual,chunk,&got)==FR_OK && got==chunk;
             actual+=got; tufty_service();
         }
@@ -347,11 +424,17 @@ bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {
         uint8_t cache[256]; lfs_file_config fc{}; fc.buffer=cache; lfs_file_t f{};
         if(lfs_file_opencfg(&lfs,&f,path,LFS_O_RDONLY,&fc)) return false;
         lfs_soff_t n=lfs_file_size(&lfs,&f);
-        bool ok=n>=0 && static_cast<size_t>(n)<=capacity;
-        if(ok) {lfs_ssize_t got=lfs_file_read(&lfs,&f,out,n); ok=got==n; if(ok) actual=got;}
+        bool ok=n>=0 && (prefix || static_cast<size_t>(n)<=capacity);
+        if(ok) {const size_t bytes=std::min<size_t>(n,capacity);lfs_ssize_t got=lfs_file_read(&lfs,&f,out,bytes);ok=got>=0 && size_t(got)==bytes;if(ok)actual=got;}
         return lfs_file_close(&lfs,&f)==0 && ok;
     }
     return false;
+}
+bool read_file(const char *path,void *out,size_t capacity,size_t &actual) {
+    return read_file_impl(path,out,capacity,actual,false);
+}
+bool read_file_prefix(const char *path,void *out,size_t capacity,size_t &actual) {
+    return read_file_impl(path,out,capacity,actual,true);
 }
 FileStatus file_size(const char *path,size_t &bytes) {
     bytes=0;

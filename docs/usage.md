@@ -149,46 +149,13 @@ DiskDude! 检测仅匹配文件头偏移7–15的完整 `DiskDude!` 或已部分
 
 只读取对应分组的第一层文件，每组最多显示按名称排序的 64 张，文件名含后缀最多 80 字节。游戏画面保持完整 256×240。FPS 监控仅适用于单侧布局，以透明文字叠加在侧栏底部；制作素材时请在底部约 48 像素留出深色、低细节区域。NES 表示模拟帧率，LCD 表示完成传输的新游戏帧率，两者每秒更新一次，LCD 数值不代表屏幕自身的刷新率。
 
-## Console 命令
+## Console Shell
 
-Console 用于开发调试，日常使用无需连接。串口设置为 115200 波特率，关闭本地回显并启用 DTR；输入 `help` 查看命令。
+Console 用于开发调试，日常使用无需连接。串口设置为 115200 波特率，关闭本地回显并启用 DTR。输入 `help` 查看命令入口；`ble`、`ble --help` 或 `help ble` 查看该组用法，`ble connect --help` 查看具体参数。设备日志直接输出，输入行被日志打断时可按 Ctrl+C 清空，再重新输入；空行回车会显示提示符。
 
-| 命令 | 用途 |
-|---|---|
-| `help` | 显示命令列表 |
-| `status` | 查看文件系统、游戏数量及手柄状态 |
-| `menu stats` | 查看菜单资源准备、绘制及含显示等待的帧耗时（微秒） |
-| `nes stats` | 查看游戏/LCD 区间 FPS、模拟/发布/服务耗时、TE 周期/等待、游戏帧年龄、替换帧和内存统计 |
-| `lcd te` | 查询 TE 同步的请求状态、实际状态及累计超时次数 |
-| `lcd te on` / `lcd te off` | 开启 / 关闭 LCD 发送前的 TE 等待；默认开启，仅本次运行有效 |
-| `brightness 1..100` | 调整屏幕亮度 |
-| `padid 1..65535` | 设置串口及 TGP BLE 手柄 ID，默认 1；XTARK HID 不使用 ID |
-| `swapab 0/1` | 关闭或启用 A/B 互换 |
-| `pad status` | 查看活跃远程来源、各来源开关与输入可用状态 |
-| `serial on` / `serial off` | 启用 / 关闭串口手柄，Console 始终可用 |
-| `save` | 保存配置 |
-| `rescan` | 重建游戏索引 |
-| `usb disk` | 进入 USB 磁盘模式 |
-| `bootsel` | 进入刷机模式 |
-| `power status` | 查看休眠设置、唤醒原因和最近一次错误 |
-| `power sleep` | 进入深度休眠 |
-| `power sleep 秒数` | 定时休眠，秒数为 1–4294967 |
-| `power idle 秒数` | 设置菜单空闲休眠，0 关闭，范围 0–86400 |
-| `ble status` | 查看 BLE 连接、按键、报告计数、最大服务间隔/耗时及恢复次数 |
-| `ble on` / `ble off` | 启用 / 关闭 BLE |
-| `ble scan` | 启用 BLE 并重新连接，保留目标地址设置 |
-| `ble target auto` | 自动选择广播 HID 服务且报告布局兼容的设备 |
-| `ble target MAC public` | 指定 public 地址目标 |
-| `ble target MAC random` | 指定 random 地址目标 |
-| `ble trace on` / `ble trace off` | 开关 HID 描述符诊断，默认关闭 |
-| `ble discover` / `ble discover stop` | 限时发现附近设备 / 退出发现并恢复自动连接 |
-| `ble devices` | 查看发现的 MAC、地址类型、名称、信号和 HID 标志 |
-| `ble connect MAC public\|random` | 临时连接选中的设备，不修改白名单 |
-| `ble allow MAC public\|random` | 添加白名单 |
-| `ble prefer MAC public\|random` | 添加白名单并设为首选 |
-| `ble forget MAC public\|random` | 删除白名单条目 |
-| `ble whitelist` / `ble whitelist clear` | 查看 / 清空白名单 |
-| `ble mode auto` / `ble mode whitelist` | 自动连接兼容设备 / 只连接白名单 |
+提示符显示当前目录，例如 `[/system/roms]> `。`pwd`、`ls [-l] [path]`、`cd [path]`、`cat <file>` 用于查看文件系统；根目录包含 `/rom`、`/system`、`/state`，Shell 文件访问均为只读。支持相对路径、绝对路径、`.` 和 `..`；带空格的路径用单引号或双引号包围。重新连接后目录回到 `/`。
+
+文件访问仅在游戏库和 Settings 中可用。`cat` 根据前 512 字节识别 UTF-8 文本，疑似二进制返回 `binary`，文本大小上限 16 KiB；不支持 UTF-16 等其他编码。目录列表输出上限也为 16 KiB，超过时会明确报错。输出期间按 Ctrl+C 取消。未实现文件写入、管道、重定向、脚本、历史记录及 Tab 补全。USB Disk 模式不接受 Shell 命令。
 
 连续两次查询 `nes stats` 可获取 LCD 区间 FPS；首次只建立统计窗口。`game_fps` 统计游戏画面传输，`LCD fps` 包含菜单，`drops` 表示待显示旧帧被替换；详细字段见[固件架构](architecture.md#扩展规则)。
 

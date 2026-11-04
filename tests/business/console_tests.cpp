@@ -34,7 +34,7 @@ int main() {
     assert(commands.size()==1 && commands[0]=="status");
     commands.clear(); output.clear();
     // Invalid/long input cannot execute a valid-looking command prefix.
-    type(line,"usb disk"+std::string(100,' ')+'\n');
+    type(line,"usb disk"+std::string(256,' ')+'\n');
     assert(commands.empty() && output.find("line too long")!=std::string::npos);
     type(line,"bootsel\x1b[A\n");
     assert(commands.empty() && output.find("unsupported character")!=std::string::npos);

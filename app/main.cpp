@@ -4,6 +4,7 @@
 #include "disk_display.hpp"
 #include "storage.hpp"
 #include "usb.hpp"
+#include "shell.hpp"
 #include "menu.hpp"
 #include "game_lists.hpp"
 #include "ui.hpp"
@@ -125,6 +126,7 @@ static void run_game(int index) {
     const nes::Host host{tufty_service,game_input,game_line,game_frame,game_message,game_started};
     side_background::prepare();
     SCREEN=&display::game_buffer();display::begin_game(storage::config.palette,side_background::view());
+    shell::cancel(); // Discard requests received while loading the ROM/assets.
     diagnostics::reset();diagnostics::playing=true;
     if(!nes::infones_adapter::run(host,rom_data,rom_bytes,&error)) {
         std::printf("NES: %s\n",error?error:"Core failed");
@@ -177,6 +179,7 @@ int main() {
     menu::select(game_lists::game(selected-1));
     while(true) {
         tufty_service();
+        shell::service();
         ui::service(to_ms_since_boot(get_absolute_time()));
         configuration::sync();
         game_lists::refresh();
@@ -211,6 +214,7 @@ int main() {
             display::present_menu(back); back^=1;
             settings::after_present();
             const auto exit=settings::take_exit();
+            if(exit!=settings::Exit::None) shell::cancel();
             if(exit==settings::Exit::Rebuild) refresh_library(true);
             if(exit==settings::Exit::Disk) usb::reboot_disk();
             else if(exit==settings::Exit::Bootsel) usb::reboot_bootsel();
@@ -241,6 +245,7 @@ int main() {
         }
         const int game=game_lists::game(selected-1);
         if(menu::launch_requested(pressed) && game>=0) {
+            shell::cancel();
             if(!game_lists::save()) {settings::request_save(); repeat.reset(); continue;}
             repeat.reset();
             input::hub.clear_events();

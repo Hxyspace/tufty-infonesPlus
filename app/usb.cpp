@@ -5,7 +5,7 @@
 #include "menu.hpp"
 #include "fat_disk.hpp"
 #include "display.hpp"
-#include "console.hpp"
+#include "shell.hpp"
 #include "power.hpp"
 #include "ble.hpp"
 #include "controllers.hpp"
@@ -99,13 +99,14 @@ void transition_notice(const char *message) {
 }
 static bool send_protocol(const char *s,size_t n) {return protocol_tx.add(s,n);}
 static void logs(const char *p,int n) {if(n>0) console_tx.add(p,n);}
-static void echo_console(const char *p,size_t n) {console_tx.add(p,n);}
+static bool shell_write(const char *p,size_t n) {return console_tx.add(p,n);}
+static bool shell_files_available() {return !mode && !diagnostics::playing && !power::pending() && !disk_requested && !boot_requested;}
 static void command(const char *s);
-static console::Line console_line(echo_console,command);
 static stdio_driver_t driver{};
 bool disk_mode() {return mode;}
 void init(bool disk) {
     mode=disk;
+    shell::init(shell_write,command,shell_files_available);
     if(!tusb_init()) panic("USB init");
     driver.out_chars=logs;
     stdio_set_translate_crlf(&driver,true);
@@ -117,14 +118,7 @@ static void command(const char *s) {
         std::printf("POWER SLEEP: PENDING; command rejected\n"); return;
     }
     if(power::command(s) || controllers::command(s) || ble::command(s)) return;
-    if(!std::strcmp(s,"help")) {
-        std::printf("help | status | nes stats | menu stats | lcd te [on|off] | usb disk | bootsel | rescan | save | brightness 1..100 | padid 1..65535 | swapab 0/1\n"
-                    "power status | power sleep [seconds] | power idle 0..86400\n"
-                    "pad status | serial on|off | ble status | ble on|off | ble scan\n"
-                    "ble discover [stop] | ble devices | ble connect MAC public|random\n"
-                    "ble whitelist [clear] | ble allow|forget|prefer MAC public|random | ble mode auto|whitelist\n"
-                    "ble target auto | ble target MAC public|random | ble trace on|off\n");
-    } else if(!std::strcmp(s,"status")) {
+    if(!std::strcmp(s,"status")) {
         std::printf("FAT=%u sector=%u State=%u ROMs=%u pad=%u packets=%lu rejected=%lu dirty=%u\n",
             storage::mounted(),flashfat::disk.sector_size,storage::state_ready(),unsigned(storage::count),pad.active,
             static_cast<unsigned long>(pad.received),static_cast<unsigned long>(pad.rejected),dirty);
@@ -219,16 +213,17 @@ void poll() {
         was_connected=connected;
     }
     bool c0=tud_cdc_n_connected(0);
-    if(c0!=console_connected) console_line.reset();
+    if(c0!=console_connected) shell::reset();
     if(!c0) tud_cdc_n_read_flush(0);
     if(c0 && !console_connected) {
         std::printf("Tufty NES: CDC0 Console, CDC1 Gamepad%s\n",mode?" (disk mode)":"; type help");
         std::printf("Build: %s\n",TUFTY_VERSION_TIMESTAMP);
+        if(!mode) shell::prompt();
     }
     console_connected=c0;
     for(int budget=0;budget<128 && tud_cdc_n_available(0);++budget) {
         int c=tud_cdc_n_read_char(0);
-        if(c0 && !mode && c>=0) {power::activity(); console_line.feed(static_cast<uint8_t>(c));}
+        if(c0 && !mode && c>=0) {power::activity(); shell::feed(static_cast<uint8_t>(c));}
     }
     uint32_t now=to_ms_since_boot(get_absolute_time());
     for(int budget=0;budget<256 && tud_cdc_n_available(1);++budget) {
@@ -239,9 +234,11 @@ void poll() {
         }
     }
     if(!mode && storage::config.serial_enabled && pad.poll(now) && pad.input.contributing()) power::activity();
+    if(c0 && !mode) shell::poll();
     console_tx.drain(0); protocol_tx.drain(1);
 }
 void shutdown() {
+    shell::reset();
     pad.reset();
     stdio_set_driver_enabled(&driver,false);
     tud_disconnect(); tud_deinit(0);

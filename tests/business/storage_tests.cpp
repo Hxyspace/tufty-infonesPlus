@@ -12,6 +12,7 @@
 #include "hardware/sync.h"
 #include <sys/mman.h>
 #include <cassert>
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <vector>
@@ -137,6 +138,18 @@ int main(int argc,char **argv) {
         std::vector<uint8_t> background(320*240*2); size_t bytes=0;
         assert(storage::read_file("/rom/background/background.565",background.data(),background.size(),bytes));
         assert(bytes==background.size());
+        storage::PathInfo path_info;
+        assert(storage::inspect_path("/rom",path_info) && path_info.directory);
+        assert(storage::inspect_path("/rom/background/background.565",path_info) && !path_info.directory && path_info.bytes==background.size());
+        uint8_t prefix[13];size_t prefix_bytes=0;
+        assert(storage::read_file_prefix("/rom/background/background.565",prefix,sizeof prefix,prefix_bytes));
+        assert(prefix_bytes==sizeof prefix && !std::memcmp(prefix,background.data(),sizeof prefix));
+        std::vector<std::string> names;
+        const auto collect=[](const char *name,bool directory,size_t,void *ctx) {
+            static_cast<std::vector<std::string> *>(ctx)->emplace_back(std::string(name)+(directory?"/":""));return true;
+        };
+        assert(storage::list_directory("/rom",collect,&names));
+        assert(std::find(names.begin(),names.end(),"background/")!=names.end());
         if(!defaults) {
             char text[32]{};
             assert(storage::read_file("/system/assets/test.txt",text,sizeof(text),bytes));
@@ -594,6 +607,42 @@ int main(int argc,char **argv) {
     assert(storage::read_file("/state/settings.json",text,sizeof(text)-1,actual)); text[actual]=0;
     assert(std::string(text)=="{\"brightness\":42}");
     assert(!storage::read_file("/system/../state/settings.json",text,sizeof(text),actual));
+    {
+        const unsigned before=programs;
+        storage::PathInfo info;
+        assert(storage::inspect_path("/",info) && info.directory);
+        assert(storage::inspect_path("/system",info) && info.directory);
+        assert(storage::inspect_path("/system/roms",info) && info.directory);
+        assert(storage::inspect_path("/state",info) && info.directory);
+        assert(storage::inspect_path("/state/settings.json",info) && !info.directory && info.bytes==std::strlen(text));
+        for(const auto *bad:{"/systemevil","/state/../system","relative","/state/./settings.json","/system/roms/not-present"})
+            assert(!storage::inspect_path(bad,info));
+        std::vector<std::string> names;
+        const auto collect=[](const char *name,bool directory,size_t,void *ctx) {
+            static_cast<std::vector<std::string> *>(ctx)->emplace_back(std::string(name)+(directory?"/":""));return true;
+        };
+        assert(storage::list_directory("/",collect,&names));
+        assert((names==std::vector<std::string>{"rom/","system/","state/"}));
+        names.clear();assert(storage::list_directory("/state",collect,&names));
+        assert(std::find(names.begin(),names.end(),"settings.json")!=names.end());
+        names.clear();check_read_ownership=true;
+        assert(storage::list_directory("/system",collect,&names));
+        check_read_ownership=false;
+        assert(std::find(names.begin(),names.end(),"roms/")!=names.end());
+        const auto stop=[](const char *,bool,size_t,void *) {return false;};
+        assert(!storage::list_directory("/state",stop,nullptr));
+        assert(!storage::list_directory("/system",stop,nullptr));
+        char prefix[4];size_t n=0;
+        assert(storage::read_file_prefix("/state/settings.json",prefix,sizeof prefix,n));
+        assert(n==4 && !std::memcmp(prefix,text,4));
+        const std::string rom_path=std::string("/system/roms/")+storage::entries[0].name;
+        check_read_ownership=true;
+        assert(storage::read_file_prefix(rom_path.c_str(),prefix,sizeof prefix,n));
+        check_read_ownership=false;
+        assert(n==4 && !std::memcmp(prefix,"NES\x1a",4));
+        assert(!storage::read_file(rom_path.c_str(),prefix,sizeof prefix,n));
+        assert(programs==before); // Shell inspection never writes Flash.
+    }
     // Even maximally escaped resource names and a full whitelist must fit the
     // config reader's fixed window and survive a real LittleFS reload.
     const auto normal_config=storage::config;

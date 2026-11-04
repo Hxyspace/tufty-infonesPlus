@@ -59,6 +59,12 @@ bool remove_state(const char *path);
 bool mark_library_changed();
 bool load(size_t index,const uint8_t *&data,size_t &bytes);
 bool read_file(const char *path,void *out,size_t capacity,size_t &actual);
+bool read_file_prefix(const char *path,void *out,size_t capacity,size_t &actual);
+// Read-only namespace inspection. Paths must be canonical absolute paths.
+struct PathInfo {bool directory=false; size_t bytes=0;};
+bool inspect_path(const char *path,PathInfo &info);
+using DirectoryVisitor=bool (*)(const char *name,bool directory,size_t bytes,void *context);
+bool list_directory(const char *path,DirectoryVisitor visitor,void *context);
 bool save();
 // Reformat State only. The caller must reboot on success without saving live settings.
 bool reset_state();

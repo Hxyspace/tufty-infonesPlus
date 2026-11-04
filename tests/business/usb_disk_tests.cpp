@@ -80,6 +80,10 @@ void state(disk_ui::State value){::state=value;}
 bool active(){return true;}
 }
 namespace storage {
+bool inspect_path(const char *,PathInfo &){assert(false);return false;}
+bool list_directory(const char *,DirectoryVisitor,void *){assert(false);return false;}
+bool read_file(const char *,void *,size_t,size_t &){assert(false);return false;}
+bool read_file_prefix(const char *,void *,size_t,size_t &){assert(false);return false;}
 bool mark_library_changed(){++markers;return marker_ok;}
 Config config;
 size_t count=0;

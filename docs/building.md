@@ -81,7 +81,7 @@ bash tools/test.sh --business
 CC=clang CXX=clang++ TUFTY_TEST_BUILD_DIR="$PWD/build/host-clang" bash tools/test.sh --business
 ```
 
-主机测试用于验证可重复的核心与业务逻辑。LCD 传输、无线连接、Flash 写入和休眠唤醒等硬件行为需要在设备上验证；运行诊断见[使用指南](usage.md#console-命令)。
+主机测试用于验证可重复的核心与业务逻辑。LCD 传输、无线连接、Flash 写入和休眠唤醒等硬件行为需要在设备上验证；运行诊断见[使用指南](usage.md#console-shell)。
 
 `python3 tools/preview.py` 构建独立的 SDL2 游戏库 / Settings / NES 预览客户端。其 `TUFTY_HOST_PREVIEW` CMake 选项默认关闭，普通测试和固件构建无需 SDL。自动输入、截图及无 SDL 的 `rom_probe` 用法见[主机预览](preview.md)。
 
